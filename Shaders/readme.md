@@ -1,5 +1,3 @@
-Please note the following additional requirements not included here:
+PLEASE NOTE:
 
-FSMAA.fx and ASSMAA.fx: These shaders require the SMAA header and texture files which can be obtained by downloading the SweetFX shader package when installing ReShade
-
-HQAA.fx: This shader requires the header and texture files for SMAA as well as the header file for FXAA, both of which can be obtained by downloading the SweetFX shader package when installing ReShade
+HQAA.fx, ASSMAA.fx, FSMAA.fx ALL require you to install the SweetFX effects package when you install ReShade to your game. They WILL NOT COMPILE if you skip this step.
