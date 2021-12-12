@@ -7,7 +7,7 @@
  *
  * Uses customized additional passes to cover more aliasing cases
  *
- *                       v0.2 beta
+ *                       v0.3 beta
  *
  *                     by lordbean
  *
@@ -35,14 +35,14 @@ uniform float EdgeThreshold < __UNIFORM_SLIDER_FLOAT1
 	ui_label = "Edge Detection Threshold";
 	ui_tooltip = "Local contrast required to run shader";
         ui_category = "Normal Usage";
-> = 0.075;
+> = 0.1;
 
 uniform float Subpix < __UNIFORM_SLIDER_FLOAT1
 	ui_min = 0.0; ui_max = 1.0;
 	ui_label = "Subpixel Effects Strength";
 	ui_tooltip = "Lower = sharper image, Higher = more AA effect";
         ui_category = "Normal Usage";
-> = 0.375;
+> = 0.5;
 
 uniform int PmodeWarning <
 	ui_type = "radio";
@@ -179,7 +179,7 @@ uniform float SubpixBoost < __UNIFORM_SLIDER_FLOAT1
 
 #define FXAA_GREEN_AS_LUMA 1    // Seems to play nicer with SMAA, less aliasing artifacts
 #define SMAA_PRESET_CUSTOM
-#define SMAA_THRESHOLD max(0.05, EdgeThreshold)
+#define SMAA_THRESHOLD max(0.0625, EdgeThreshold)
 #define SMAA_MAX_SEARCH_STEPS 112
 #define SMAA_CORNER_ROUNDING 0
 #define SMAA_MAX_SEARCH_STEPS_DIAG 20
@@ -1453,7 +1453,6 @@ void SMAANeighborhoodBlendingWrapVS(
 }
 
 // -------------------------------- Pixel shaders ------------------------------------------
-// SMAA detection method is using ASSMAA "Both, biasing Clarity" to minimize blurring
 
 float2 SMAAEdgeDetectionWrapPS(
 	float4 position : SV_Position,
@@ -1483,93 +1482,66 @@ float3 SMAANeighborhoodBlendingWrapPS(
 
 float4 FXAAPixelShaderGreenCoarse(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = 0.0;
+	float TotalSubpix = Subpix * 0.0625;
 	if (Overdrive)
-	{
-		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.125;
-	}
-	TotalSubpix += Subpix * 0.075;
-	float4 output = FxaaGreenLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.625 + (EdgeThreshold * 0.25),0.020,0,0,0,0); // Range 0.625 to 0.875
+		TotalSubpix += SubpixBoost * 0.1875;
+	float4 output = FxaaGreenLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.625 + (EdgeThreshold * 0.375),0.04,0,0,0,0); // Range 0.625 to 1
 	return saturate(output);
 }
 
 float4 FXAAPixelShaderGreenFine(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = 0.0;
+	float TotalSubpix = Subpix * 0.25;
 	if (Overdrive)
-	{
-		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.35;
-	}
-	TotalSubpix += Subpix * 0.15;
-	float4 output = FxaaGreenLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.05,0.5 * EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
+		TotalSubpix += SubpixBoost * 0.75;
+	float4 output = FxaaGreenLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.0625,EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
 	return saturate(output);
 }
 
 float4 FXAAPixelShaderBlueCoarse(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = 0.0;
+	float TotalSubpix = Subpix * 0.0625;
 	if (Overdrive)
-	{
-		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.125;
-	}
-	TotalSubpix += Subpix * 0.075;
-	float4 output = FxaaBlueLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.625 + (EdgeThreshold * 0.25),0.020,0,0,0,0); // Range 0.625 to 0.875
+		TotalSubpix += SubpixBoost * 0.1875;
+	float4 output = FxaaBlueLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.625 + (EdgeThreshold * 0.375),0.04,0,0,0,0); // Range 0.625 to 1
 	return saturate(output);
 }
 
 float4 FXAAPixelShaderBlueFine(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = 0.0;
+	float TotalSubpix = Subpix * 0.25;
 	if (Overdrive)
-	{
-		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.35;
-	}
-	TotalSubpix += Subpix * 0.15;
-	float4 output = FxaaBlueLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.05,0.5 * EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
+		TotalSubpix += SubpixBoost * 0.75;
+	float4 output = FxaaBlueLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.0625,EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
 	return saturate(output);
 }
 
 float4 FXAAPixelShaderRedCoarse(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = 0.0;
+	float TotalSubpix = Subpix * 0.0625;
 	if (Overdrive)
-	{
-		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.125;
-	}
-	TotalSubpix += Subpix * 0.075;
-	float4 output = FxaaRedLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.625 + (EdgeThreshold * 0.25),0.020,0,0,0,0); // Range 0.625 to 0.875
+		TotalSubpix += SubpixBoost * 0.1875;
+	float4 output = FxaaRedLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.625 + (EdgeThreshold * 0.375),0.04,0,0,0,0); // Range 0.625 to 1
 	return saturate(output);
 }
 
 float4 FXAAPixelShaderRedFine(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = 0.0;
+	float TotalSubpix = Subpix * 0.25;
 	if (Overdrive)
-	{
-		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.35;
-	}
-	TotalSubpix += Subpix * 0.15;
-	float4 output = FxaaRedLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.05,0.5 * EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
+		TotalSubpix += SubpixBoost * 0.75;
+	float4 output = FxaaRedLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.0625,EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
 	return saturate(output);
 }
 
 // -------------------------------- Rendering passes ----------------------------------------
 
 technique HQLAA <
-	ui_tooltip = "Hybrid high-Quality Luma-adaptive AA combines techniques\n"
+	ui_tooltip = "\nHybrid high-Quality Luma-adaptive AA combines techniques\n"
 				 "of both SMAA and FXAA to produce best possible image quality\n"
 				 "from using both. It uses customized FXAA passes designed to\n"
 				 "detect aliasing in pure blue or red scenes where normal\n"
-				 "green-as-luma FXAA would fail to produce a result.\n\n"
-				 "HQLAA is a reasonably fast shader because only two of six\n"
-				 "FXAA passes will fully compute per pixel. The other four\n"
-				 "are skipped due to luma color selection.";
+				 "green-as-luma FXAA would fail to produce a result.\n";
 >
 {
 	pass SMAAEdgeDetection
