@@ -5,7 +5,7 @@
  *
  *   Smooshes FXAA and SMAA together as a single shader
  *
- *                     v1.31 release
+ *                     v1.32 release
  *
  *                     by lordbean
  *
@@ -371,9 +371,9 @@ float4 FXAAPixelShaderVeryLow(float4 vpos : SV_Position, float2 texcoord : TEXCO
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.75;
+		TotalSubpix = TotalSubpix * 0.4;
 	}
-	TotalSubpix += Subpix * 0.25;
+	TotalSubpix += Subpix * 0.1;
 	float4 output = FxaaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.9 - (Subpix * 0.15),0.012,0,0,0,0); // Range 0.9 to 0.75
 	return saturate(output);
 }
@@ -384,9 +384,9 @@ float4 FXAAPixelShaderLow(float4 vpos : SV_Position, float2 texcoord : TEXCOORD)
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.75;
+		TotalSubpix = TotalSubpix * 0.4;
 	}
-	TotalSubpix += Subpix * 0.25;
+	TotalSubpix += Subpix * 0.1;
 	float4 output = FxaaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.75 - (Subpix * 0.15),0.012,0,0,0,0); // Range 0.75 to 0.6
 	return saturate(output);
 }
@@ -397,9 +397,9 @@ float4 FXAAPixelShaderMid(float4 vpos : SV_Position, float2 texcoord : TEXCOORD)
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.75;
+		TotalSubpix = TotalSubpix * 0.4;
 	}
-	TotalSubpix += Subpix * 0.25;
+	TotalSubpix += Subpix * 0.1;
 	float4 output = FxaaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.6 - (Subpix * 0.15),0.012,0,0,0,0); // Range 0.6 to 0.45
 	return saturate(output);
 }
@@ -410,9 +410,9 @@ float4 FXAAPixelShaderHigh(float4 vpos : SV_Position, float2 texcoord : TEXCOORD
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.75;
+		TotalSubpix = TotalSubpix * 0.4;
 	}
-	TotalSubpix += Subpix * 0.25;
+	TotalSubpix += Subpix * 0.1;
 	float4 output = FxaaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.45 - (Subpix * 0.15),0.012,0,0,0,0); // Range 0.45 to 0.3
 	return saturate(output);
 }
@@ -423,9 +423,9 @@ float4 FXAAPixelShaderFine(float4 vpos : SV_Position, float2 texcoord : TEXCOORD
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.5;
+		TotalSubpix = TotalSubpix * 0.750;
 	}
-	TotalSubpix += Subpix * 0.5;
+	TotalSubpix += Subpix * 0.250;
 	float4 output = FxaaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.05,0.3 * EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
 	return saturate(output);
 }
