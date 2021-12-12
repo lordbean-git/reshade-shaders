@@ -1516,6 +1516,11 @@ technique HQLAA <
 		VertexShader = PostProcessVS;
 		PixelShader = FXAAPixelShaderGreenCoarse;
 	}
+	pass FXAAGreenCoarse
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = FXAAPixelShaderGreenCoarse;
+	}
 	pass FXAAGreenFine
 	{
 		VertexShader = PostProcessVS;
@@ -1526,10 +1531,20 @@ technique HQLAA <
 		VertexShader = PostProcessVS;
 		PixelShader = FXAAPixelShaderBlueCoarse;
 	}
+	pass FXAABlueCoarse
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = FXAAPixelShaderBlueCoarse;
+	}
 	pass FXAABlueFine
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = FXAAPixelShaderBlueFine;
+	}
+	pass FXAARedCoarse
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = FXAAPixelShaderRedCoarse;
 	}
 	pass FXAARedCoarse
 	{
