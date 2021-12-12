@@ -179,7 +179,7 @@ uniform float SubpixBoost < __UNIFORM_SLIDER_FLOAT1
 
 #define FXAA_GREEN_AS_LUMA 1    // using a color as luma seems to work better with SMAA.
 #define SMAA_PRESET_CUSTOM
-#define SMAA_THRESHOLD max(0.0625, EdgeThreshold)
+#define SMAA_THRESHOLD min(EdgeThreshold + 0.05, 1.0)
 #define SMAA_MAX_SEARCH_STEPS 112
 #define SMAA_CORNER_ROUNDING 0
 #define SMAA_MAX_SEARCH_STEPS_DIAG 20
