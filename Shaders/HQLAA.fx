@@ -7,7 +7,7 @@
  *
  * Uses customized additional passes to cover more aliasing cases
  *
- *                       v0 beta
+ *                       v0.2 beta
  *
  *                     by lordbean
  *
@@ -231,9 +231,15 @@ FxaaFloat4 FxaaRedLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePosPos, 
     FxaaFloat2 posM;
     posM.x = pos.x;
     posM.y = pos.y;
+    FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
+    if (rgbyM.y >= rgbyM.x || rgbyM.z >= rgbyM.x) // Exit if green or blue luma is greater or equal to red (lowest priority luma color)
+    #if (FXAA_DISCARD == 1)
+        FxaaDiscard;
+    #else
+        return rgbyM;
+    #endif
     #if (FXAA_GATHER4_ALPHA == 1)
         #if (FXAA_DISCARD == 0)
-            FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
             #define lumaMr rgbyM.x
         #endif
         FxaaFloat4 luma4A = FxaaTexRed4(tex, posM);
@@ -248,7 +254,6 @@ FxaaFloat4 FxaaRedLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePosPos, 
         #define lumaN luma4B.z
         #define lumaW luma4B.x
     #else
-        FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
         #define lumaMr rgbyM.x
         FxaaFloat lumaS = FxaaRedLuma(FxaaTexOff(tex, posM, FxaaInt2( 0, 1), fxaaQualityRcpFrame.xy));
         FxaaFloat lumaE = FxaaRedLuma(FxaaTexOff(tex, posM, FxaaInt2( 1, 0), fxaaQualityRcpFrame.xy));
@@ -256,12 +261,6 @@ FxaaFloat4 FxaaRedLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePosPos, 
         FxaaFloat lumaW = FxaaRedLuma(FxaaTexOff(tex, posM, FxaaInt2(-1, 0), fxaaQualityRcpFrame.xy));
     #endif
 	
-	if (rgbyM.y >= rgbyM.x || rgbyM.z >= rgbyM.x) // Exit if green or blue luma is greater or equal to red (lowest priority luma color)
-        #if (FXAA_DISCARD == 1)
-            FxaaDiscard;
-        #else
-            return rgbyM;
-        #endif
 /*--------------------------------------------------------------------------*/
     FxaaFloat maxSM = max(lumaS, lumaMr);
     FxaaFloat minSM = min(lumaS, lumaMr);
@@ -591,9 +590,15 @@ FxaaFloat4 FxaaBlueLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePosPos,
     FxaaFloat2 posM;
     posM.x = pos.x;
     posM.y = pos.y;
+    FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
+	if (rgbyM.y >= rgbyM.z || rgbyM.x > rgbyM.z) // Exit if green is equal or greater, or if red is greater (second-choice luma color)
+        #if (FXAA_DISCARD == 1)
+            FxaaDiscard;
+        #else
+            return rgbyM;
+        #endif
     #if (FXAA_GATHER4_ALPHA == 1)
         #if (FXAA_DISCARD == 0)
-            FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
             #define lumaMb rgbyM.z
         #endif
         FxaaFloat4 luma4A = FxaaTexBlue4(tex, posM);
@@ -608,7 +613,6 @@ FxaaFloat4 FxaaBlueLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePosPos,
         #define lumaN luma4B.z
         #define lumaW luma4B.x
     #else
-        FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
         #define lumaMb rgbyM.z
         FxaaFloat lumaS = FxaaBlueLuma(FxaaTexOff(tex, posM, FxaaInt2( 0, 1), fxaaQualityRcpFrame.xy));
         FxaaFloat lumaE = FxaaBlueLuma(FxaaTexOff(tex, posM, FxaaInt2( 1, 0), fxaaQualityRcpFrame.xy));
@@ -616,12 +620,6 @@ FxaaFloat4 FxaaBlueLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePosPos,
         FxaaFloat lumaW = FxaaBlueLuma(FxaaTexOff(tex, posM, FxaaInt2(-1, 0), fxaaQualityRcpFrame.xy));
     #endif
 	
-	if (rgbyM.y >= rgbyM.z || rgbyM.x > rgbyM.z) // Exit if green is equal or greater, or if red is greater (second-choice luma color)
-        #if (FXAA_DISCARD == 1)
-            FxaaDiscard;
-        #else
-            return rgbyM;
-        #endif
 /*--------------------------------------------------------------------------*/
     FxaaFloat maxSM = max(lumaS, lumaMb);
     FxaaFloat minSM = min(lumaS, lumaMb);
@@ -952,9 +950,15 @@ FxaaFloat4 FxaaGreenLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePosPos
     FxaaFloat2 posM;
     posM.x = pos.x;
     posM.y = pos.y;
+    FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
+	if (rgbyM.x > rgbyM.y || rgbyM.z > rgbyM.y) // Exit if red or blue is higher than green (default luma color)
+        #if (FXAA_DISCARD == 1)
+            FxaaDiscard;
+        #else
+            return rgbyM;
+        #endif
     #if (FXAA_GATHER4_ALPHA == 1)
         #if (FXAA_DISCARD == 0)
-            FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
             #if (FXAA_GREEN_AS_LUMA == 0)
                 #define lumaMg rgbyM.w
             #else
@@ -978,7 +982,6 @@ FxaaFloat4 FxaaGreenLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePosPos
         #define lumaN luma4B.z
         #define lumaW luma4B.x
     #else
-        FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
         #if (FXAA_GREEN_AS_LUMA == 0)
             #define lumaMg rgbyM.w
         #else
@@ -990,12 +993,6 @@ FxaaFloat4 FxaaGreenLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePosPos
         FxaaFloat lumaW = FxaaLuma(FxaaTexOff(tex, posM, FxaaInt2(-1, 0), fxaaQualityRcpFrame.xy));
     #endif
 	
-	if (rgbyM.x > rgbyM.y || rgbyM.z > rgbyM.y) // Exit if red or blue is higher than green (default luma color)
-        #if (FXAA_DISCARD == 1)
-            FxaaDiscard;
-        #else
-            return rgbyM;
-        #endif
 /*--------------------------------------------------------------------------*/
     FxaaFloat maxSM = max(lumaS, lumaMg);
     FxaaFloat minSM = min(lumaS, lumaMg);
@@ -1490,10 +1487,10 @@ float4 FXAAPixelShaderGreenCoarse(float4 vpos : SV_Position, float2 texcoord : T
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.4;
+		TotalSubpix = TotalSubpix * 0.125;
 	}
-	TotalSubpix += Subpix * 0.1;
-	float4 output = FxaaGreenLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.875 - (Subpix * 0.375),0.012,0,0,0,0); // Range 0.875 to 0.5
+	TotalSubpix += Subpix * 0.075;
+	float4 output = FxaaGreenLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.625 + (EdgeThreshold * 0.25),0.020,0,0,0,0); // Range 0.625 to 0.875
 	return saturate(output);
 }
 
@@ -1503,9 +1500,9 @@ float4 FXAAPixelShaderGreenFine(float4 vpos : SV_Position, float2 texcoord : TEX
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.625;
+		TotalSubpix = TotalSubpix * 0.35;
 	}
-	TotalSubpix += Subpix * 0.375;
+	TotalSubpix += Subpix * 0.15;
 	float4 output = FxaaGreenLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.05,0.5 * EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
 	return saturate(output);
 }
@@ -1516,10 +1513,10 @@ float4 FXAAPixelShaderBlueCoarse(float4 vpos : SV_Position, float2 texcoord : TE
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.4;
+		TotalSubpix = TotalSubpix * 0.125;
 	}
-	TotalSubpix += Subpix * 0.1;
-	float4 output = FxaaBlueLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.875 - (Subpix * 0.375),0.012,0,0,0,0); // Range 0.875 to 0.5
+	TotalSubpix += Subpix * 0.075;
+	float4 output = FxaaBlueLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.625 + (EdgeThreshold * 0.25),0.020,0,0,0,0); // Range 0.625 to 0.875
 	return saturate(output);
 }
 
@@ -1529,9 +1526,9 @@ float4 FXAAPixelShaderBlueFine(float4 vpos : SV_Position, float2 texcoord : TEXC
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.625;
+		TotalSubpix = TotalSubpix * 0.35;
 	}
-	TotalSubpix += Subpix * 0.375;
+	TotalSubpix += Subpix * 0.15;
 	float4 output = FxaaBlueLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.05,0.5 * EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
 	return saturate(output);
 }
@@ -1542,10 +1539,10 @@ float4 FXAAPixelShaderRedCoarse(float4 vpos : SV_Position, float2 texcoord : TEX
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.4;
+		TotalSubpix = TotalSubpix * 0.125;
 	}
-	TotalSubpix += Subpix * 0.1;
-	float4 output = FxaaRedLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.875 - (Subpix * 0.375),0.012,0,0,0,0); // Range 0.875 to 0.5
+	TotalSubpix += Subpix * 0.075;
+	float4 output = FxaaRedLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.625 + (EdgeThreshold * 0.25),0.020,0,0,0,0); // Range 0.625 to 0.875
 	return saturate(output);
 }
 
@@ -1555,9 +1552,9 @@ float4 FXAAPixelShaderRedFine(float4 vpos : SV_Position, float2 texcoord : TEXCO
 	if (Overdrive)
 	{
 		TotalSubpix += SubpixBoost;
-		TotalSubpix = TotalSubpix * 0.625;
+		TotalSubpix = TotalSubpix * 0.35;
 	}
-	TotalSubpix += Subpix * 0.375;
+	TotalSubpix += Subpix * 0.15;
 	float4 output = FxaaRedLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.05,0.5 * EdgeThreshold),0.004,0,0,0,0); // Cap maximum sensitivity level for blur control
 	return saturate(output);
 }
@@ -1608,25 +1605,40 @@ technique HQLAA <
 		VertexShader = PostProcessVS;
 		PixelShader = FXAAPixelShaderGreenCoarse;
 	}
-	pass FXAABlueCoarse
+	pass FXAAGreenCoarse
 	{
 		VertexShader = PostProcessVS;
-		PixelShader = FXAAPixelShaderBlueCoarse;
-	}
-	pass FXAARedCoarse
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = FXAAPixelShaderRedCoarse;
+		PixelShader = FXAAPixelShaderGreenCoarse;
 	}
 	pass FXAAGreenFine
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = FXAAPixelShaderGreenFine;
 	}
+	pass FXAABlueCoarse
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = FXAAPixelShaderBlueCoarse;
+	}
+	pass FXAABlueCoarse
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = FXAAPixelShaderBlueCoarse;
+	}
 	pass FXAABlueFine
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = FXAAPixelShaderBlueFine;
+	}
+	pass FXAARedCoarse
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = FXAAPixelShaderRedCoarse;
+	}
+	pass FXAARedCoarse
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = FXAAPixelShaderRedCoarse;
 	}
 	pass FXAARedFine
 	{
