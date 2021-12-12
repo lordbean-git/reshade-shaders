@@ -7,7 +7,7 @@
  *
  * Uses customized additional passes to cover more aliasing cases
  *
- *                       v0.3 beta
+ *                       v0.4 beta
  *
  *                     by lordbean
  *
@@ -183,7 +183,7 @@ uniform float SubpixBoost < __UNIFORM_SLIDER_FLOAT1
 #define SMAA_MAX_SEARCH_STEPS 112
 #define SMAA_CORNER_ROUNDING 0
 #define SMAA_MAX_SEARCH_STEPS_DIAG 20
-#define SMAA_LOCAL_CONTRAST_ADAPTATION_FACTOR (1.1 + (0.65 * Subpix)) // Range 1.1 to 1.75
+#define SMAA_LOCAL_CONTRAST_ADAPTATION_FACTOR (1 + (0.375 * Subpix) + (Overdrive ? SubpixBoost*0.625 : 0))
 #define FXAA_QUALITY__PRESET 39
 #define FXAA_PC 1
 #define FXAA_HLSL_3 1
