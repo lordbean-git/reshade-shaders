@@ -243,8 +243,8 @@ FxaaFloat4 FxaaAdaptiveLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePos
 	
 	int lumatype = 1; // assume green is luma until determined otherwise
     FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
-	float lumatest = min(5.0 * rgbyM.y, 1.0);
-	if (rgbyM.y <= 0.1 && ((rgbyM.x > lumatest) || (rgbyM.z > lumatest))) // if green signal is low and either blue or red has strong signal change luma color
+	float lumatest = min(2.0 * rgbyM.y, 1.0);
+	if ((rgbyM.x > lumatest) || (rgbyM.z > lumatest)) // if green signal is low and either blue or red has strong signal change luma color
 		if (rgbyM.z > lumatest) // use blue if strong
 			lumatype = 2;
 		else			// otherwise use red as luma
