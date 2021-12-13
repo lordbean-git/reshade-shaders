@@ -7,7 +7,9 @@
  *
  * Uses customized FXAA passes for dynamic luma channel select
  *
- *                       v0.6 beta
+ *  Runs CAS within FXAA to keep blur as minimal as possible
+ *
+ *                       v0.7 beta
  *
  *                     by lordbean
  *
@@ -24,6 +26,24 @@
 ------------------------------------------------------------------------------
 COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 ------------------------------------------------------------------------------*/
+
+// AMD CONTRAST ADAPTIVE SHARPENING
+// =======
+// Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+// -------
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
+// files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
+// modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+// -------
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+// Software.
+// -------
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+// WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE AUTHORS OR
+// COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+// ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
+
 
 
 //------------------------------- UI setup -----------------------------------------------
@@ -42,7 +62,7 @@ uniform float Subpix < __UNIFORM_SLIDER_FLOAT1
 	ui_label = "Subpixel Effects Strength";
 	ui_tooltip = "Lower = sharper image, Higher = more AA effect";
         ui_category = "Normal Usage";
-> = 0.375;
+> = 0.5;
 
 uniform int PmodeWarning <
 	ui_type = "radio";
@@ -565,11 +585,43 @@ FxaaFloat4 FxaaAdaptiveLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePos
     FxaaFloat pixelOffsetSubpix = max(pixelOffsetGood, subpixH);
     if(!horzSpan) posM.x += pixelOffsetSubpix * lengthSign;
     if( horzSpan) posM.y += pixelOffsetSubpix * lengthSign;
-    #if (FXAA_DISCARD == 1)
-        return FxaaTexTop(tex, posM);
-    #else
-        return FxaaFloat4(FxaaTexTop(tex, posM).xyz, lumaMa);
-    #endif
+/*--------------------------------------------------------------------------*/
+	float sharpening = saturate(0.250 - (fxaaQualityEdgeThreshold * 0.375) + (fxaaQualitySubpix * 0.5));
+
+    float3 a = tex2Doffset(tex, posM, int2(-1, -1)).rgb;
+    float3 b = tex2Doffset(tex, posM, int2(0, -1)).rgb;
+    float3 c = tex2Doffset(tex, posM, int2(1, -1)).rgb;
+    float3 d = tex2Doffset(tex, posM, int2(-1, 0)).rgb;
+    float3 e = tex2D(tex, posM).rgb;
+    float3 f = tex2Doffset(tex, posM, int2(1, 0)).rgb;
+    float3 g = tex2Doffset(tex, posM, int2(-1, 1)).rgb;
+    float3 h = tex2Doffset(tex, posM, int2(0, 1)).rgb;
+    float3 i = tex2Doffset(tex, posM, int2(1, 1)).rgb;
+	
+    float3 mnRGB = min(min(min(d, e), min(f, b)), h);
+    float3 mnRGB2 = min(mnRGB, min(min(a, c), min(g, i)));
+    mnRGB += mnRGB2;
+
+    float3 mxRGB = max(max(max(d, e), max(f, b)), h);
+    float3 mxRGB2 = max(mxRGB, max(max(a, c), max(g, i)));
+    mxRGB += mxRGB2;
+	
+    float3 rcpMRGB = rcp(mxRGB);
+    float3 ampRGB = saturate(min(mnRGB, 2.0 - mxRGB) * rcpMRGB);    
+	
+    ampRGB = rsqrt(ampRGB);
+    
+    float peak = 8.0;
+    float3 wRGB = -rcp(ampRGB * peak);
+
+    float3 rcpWeightRGB = rcp(4.0 * wRGB + 1.0);
+	
+    float3 window = (b + d) + (f + h);
+    float3 outColor = saturate((window * wRGB + e) * rcpWeightRGB);
+    
+	outColor = lerp(e, outColor, sharpening);
+/*--------------------------------------------------------------------------*/	
+    return saturate(FxaaFloat4(outColor, lumaMa));
 }
 
 // ------------------------------------------ CUSTOM FXAA CODE END --------------------------------------------
@@ -742,10 +794,10 @@ float3 SMAANeighborhoodBlendingWrapPS(
 
 float4 FXAAPixelShaderAdaptiveCoarse(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = Subpix * 0.250;
+	float TotalSubpix = Subpix * 0.375;
 	if (Overdrive)
-		TotalSubpix += SubpixBoost * 0.5;
-	float4 output = FxaaAdaptiveLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.5 + (EdgeThreshold * 0.5),0.012,0,0,0,0);
+		TotalSubpix += SubpixBoost * 0.625;
+	float4 output = FxaaAdaptiveLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.5 + (EdgeThreshold * 0.5),0.004,0,0,0,0);
 	return saturate(output);
 }
 
