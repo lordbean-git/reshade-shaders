@@ -9,7 +9,7 @@
  *
  *  Runs CAS within FXAA to keep blur as minimal as possible
  *
- *                       v0.71 beta
+ *                       v0.72 beta
  *
  *                     by lordbean
  *
@@ -586,7 +586,7 @@ FxaaFloat4 FxaaAdaptiveLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePos
     if(!horzSpan) posM.x += pixelOffsetSubpix * lengthSign;
     if( horzSpan) posM.y += pixelOffsetSubpix * lengthSign;
 /*--------------------------------------------------------------------------*/
-	float sharpening = saturate(0.250 - (fxaaQualityEdgeThreshold * 0.375) + (fxaaQualitySubpix * 0.5));
+	float sharpening = saturate(0.125 - (fxaaQualityEdgeThreshold * 0.250) + (fxaaQualitySubpix * 0.375));
 
     float3 a = tex2Doffset(tex, posM, int2(-1, -1)).rgb;
     float3 b = tex2Doffset(tex, posM, int2(0, -1)).rgb;
