@@ -9,7 +9,7 @@
  *
  *  Runs CAS within FXAA to keep blur as minimal as possible
  *
- *                       v0.7 beta
+ *                       v0.71 beta
  *
  *                     by lordbean
  *
@@ -617,11 +617,11 @@ FxaaFloat4 FxaaAdaptiveLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePos
     float3 rcpWeightRGB = rcp(4.0 * wRGB + 1.0);
 	
     float3 window = (b + d) + (f + h);
-    float3 outColor = saturate((window * wRGB + e) * rcpWeightRGB);
+    float4 outColor = float4(saturate((window * wRGB + e) * rcpWeightRGB),lumaMa);
     
-	outColor = lerp(e, outColor, sharpening);
+	outColor = lerp(float4(e,rgbyM.w), outColor, sharpening);
 /*--------------------------------------------------------------------------*/	
-    return saturate(FxaaFloat4(outColor, lumaMa));
+    return saturate(outColor);
 }
 
 // ------------------------------------------ CUSTOM FXAA CODE END --------------------------------------------
