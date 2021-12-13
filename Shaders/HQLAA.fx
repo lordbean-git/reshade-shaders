@@ -7,7 +7,7 @@
  *
  * Uses customized FXAA passes for dynamic luma channel select
  *
- *                       v0.5 beta
+ *                       v0.6 beta
  *
  *                     by lordbean
  *
@@ -742,18 +742,18 @@ float3 SMAANeighborhoodBlendingWrapPS(
 
 float4 FXAAPixelShaderAdaptiveCoarse(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = Subpix * 0.125;
+	float TotalSubpix = Subpix * 0.250;
 	if (Overdrive)
-		TotalSubpix += SubpixBoost * 0.375;
+		TotalSubpix += SubpixBoost * 0.5;
 	float4 output = FxaaAdaptiveLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.5 + (EdgeThreshold * 0.5),0.012,0,0,0,0);
 	return saturate(output);
 }
 
 float4 FXAAPixelShaderAdaptiveFine(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = Subpix * 0.375;
+	float TotalSubpix = Subpix * 0.5;
 	if (Overdrive)
-		TotalSubpix += SubpixBoost * 0.625;
+		TotalSubpix += SubpixBoost * 0.5;
 	float4 output = FxaaAdaptiveLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.03125,EdgeThreshold),0.004,0,0,0,0);
 	return saturate(output);
 }
@@ -795,11 +795,6 @@ technique HQLAA <
 		PixelShader = SMAANeighborhoodBlendingWrapPS;
 		StencilEnable = false;
 		SRGBWriteEnable = true;
-	}
-	pass FXAACoarse
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = FXAAPixelShaderAdaptiveCoarse;
 	}
 	pass FXAACoarse
 	{
