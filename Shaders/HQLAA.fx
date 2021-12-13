@@ -9,7 +9,7 @@
  *
  *  Runs CAS within FXAA to keep blur as minimal as possible
  *
- *                       v0.72 beta
+ *                       v0.8 beta
  *
  *                     by lordbean
  *
@@ -199,11 +199,11 @@ uniform float SubpixBoost < __UNIFORM_SLIDER_FLOAT1
 
 #define FXAA_GREEN_AS_LUMA 1    // using a color as luma seems to work better with SMAA.
 #define SMAA_PRESET_CUSTOM
-#define SMAA_THRESHOLD min(EdgeThreshold + 0.05, 1.0)
+#define SMAA_THRESHOLD max(EdgeThreshold * 0.5, 0.04)
 #define SMAA_MAX_SEARCH_STEPS 112
-#define SMAA_CORNER_ROUNDING 0
+#define SMAA_CORNER_ROUNDING (Overdrive ? 50 : trunc(25 * Subpix))
 #define SMAA_MAX_SEARCH_STEPS_DIAG 20
-#define SMAA_LOCAL_CONTRAST_ADAPTATION_FACTOR (1 + (0.375 * Subpix) + (Overdrive ? SubpixBoost*0.625 : 0))
+#define SMAA_LOCAL_CONTRAST_ADAPTATION_FACTOR (1.5 + (0.5 * Subpix) + (Overdrive ? SubpixBoost : 0))
 #define FXAA_QUALITY__PRESET 39
 #define FXAA_PC 1
 #define FXAA_HLSL_3 1
@@ -263,7 +263,7 @@ FxaaFloat4 FxaaAdaptiveLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePos
 	
 	int lumatype = 1; // assume green is luma until determined otherwise
     FxaaFloat4 rgbyM = FxaaTexTop(tex, posM);
-	float lumatest = min(2.0 * rgbyM.y, 1.0);
+	float lumatest = min(1.5 * rgbyM.y, 1.0);
 	if ((rgbyM.x > lumatest) || (rgbyM.z > lumatest)) // if green signal is low and either blue or red has strong signal change luma color
 		if (rgbyM.z > lumatest) // use blue if strong
 			lumatype = 2;
@@ -586,7 +586,7 @@ FxaaFloat4 FxaaAdaptiveLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePos
     if(!horzSpan) posM.x += pixelOffsetSubpix * lengthSign;
     if( horzSpan) posM.y += pixelOffsetSubpix * lengthSign;
 /*--------------------------------------------------------------------------*/
-	float sharpening = saturate(0.125 - (fxaaQualityEdgeThreshold * 0.250) + (fxaaQualitySubpix * 0.375));
+	float sharpening = saturate(0.125 - (fxaaQualityEdgeThreshold * 0.375) + (fxaaQualitySubpix * 0.75));
 
     float3 a = tex2Doffset(tex, posM, int2(-1, -1)).rgb;
     float3 b = tex2Doffset(tex, posM, int2(0, -1)).rgb;
@@ -619,7 +619,7 @@ FxaaFloat4 FxaaAdaptiveLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePos
     float3 window = (b + d) + (f + h);
     float4 outColor = float4(saturate((window * wRGB + e) * rcpWeightRGB),lumaMa);
     
-	outColor = lerp(float4(e,rgbyM.w), outColor, sharpening);
+	outColor = lerp(float4(e,lumaMa), outColor, sharpening);
 /*--------------------------------------------------------------------------*/	
     return saturate(outColor);
 }
@@ -641,19 +641,19 @@ FxaaFloat4 FxaaAdaptiveLumaPixelShader(FxaaFloat2 pos, FxaaFloat4 fxaaConsolePos
 #undef FXAA_QUALITY__P10
 #undef FXAA_QUALITY__P11
 #define FXAA_QUALITY__PS 13
-#define FXAA_QUALITY__P0 0.25
-#define FXAA_QUALITY__P1 0.5
-#define FXAA_QUALITY__P2 0.75
-#define FXAA_QUALITY__P3 1.0
-#define FXAA_QUALITY__P4 1.25
-#define FXAA_QUALITY__P5 1.5
-#define FXAA_QUALITY__P6 1.75
-#define FXAA_QUALITY__P7 2.0
-#define FXAA_QUALITY__P8 2.5
-#define FXAA_QUALITY__P9 3.0
-#define FXAA_QUALITY__P10 3.5
-#define FXAA_QUALITY__P11 4.0
-#define FXAA_QUALITY__P12 5.0
+#define FXAA_QUALITY__P0 1
+#define FXAA_QUALITY__P1 1
+#define FXAA_QUALITY__P2 1
+#define FXAA_QUALITY__P3 1
+#define FXAA_QUALITY__P4 1
+#define FXAA_QUALITY__P5 1
+#define FXAA_QUALITY__P6 1
+#define FXAA_QUALITY__P7 1
+#define FXAA_QUALITY__P8 1
+#define FXAA_QUALITY__P9 1
+#define FXAA_QUALITY__P10 1
+#define FXAA_QUALITY__P11 1
+#define FXAA_QUALITY__P12 1
 
 //------------------------------------- Textures -------------------------------------------
 
@@ -794,18 +794,14 @@ float3 SMAANeighborhoodBlendingWrapPS(
 
 float4 FXAAPixelShaderAdaptiveCoarse(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = Subpix * 0.375;
-	if (Overdrive)
-		TotalSubpix += SubpixBoost * 0.625;
-	float4 output = FxaaAdaptiveLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,0.5 + (EdgeThreshold * 0.5),0.004,0,0,0,0);
+	float TotalSubpix = Subpix * 0.5 + Overdrive ? SubpixBoost : 0;
+	float4 output = FxaaAdaptiveLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,Overdrive ? 0.2 : 0.5 + (EdgeThreshold * 0.5),0.004,0,0,0,0);
 	return saturate(output);
 }
 
 float4 FXAAPixelShaderAdaptiveFine(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float TotalSubpix = Subpix * 0.5;
-	if (Overdrive)
-		TotalSubpix += SubpixBoost * 0.5;
+	float TotalSubpix = Subpix * 0.5 + Overdrive ? SubpixBoost : 0;
 	float4 output = FxaaAdaptiveLumaPixelShader(texcoord,0,FXAATexture,FXAATexture,FXAATexture,BUFFER_PIXEL_SIZE,0,0,0,TotalSubpix,max(0.03125,EdgeThreshold),0.004,0,0,0,0);
 	return saturate(output);
 }
