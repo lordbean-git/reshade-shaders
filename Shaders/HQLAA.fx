@@ -9,7 +9,7 @@
  *
  *  Runs CAS within FXAA to keep blur as minimal as possible
  *
- *                       v0.9 beta
+ *                       v0.9.1 beta
  *
  *                     by lordbean
  *
@@ -826,7 +826,7 @@ float4 SMAANeighborhoodBlendingPS(float2 texcoord,
 #define __FxaaTexLuma4(t, p) textureGather(t, p, lumatype)
 #define __FxaaTexOffLuma4(t, p, o) textureGatherOffset(t, p, o, lumatype)
 #define __FxaaAdaptiveLuma(t) __FxaaAdaptiveLumaSelect(t, lumatype)
-#define __FXAA_DISCARD 0
+#define __FXAA_DISCARD 1
 #define __FXAA_GLSL_120 0
 #define __FXAA_GLSL_130 0
 #define __FXAA_HLSL_4 0
@@ -891,7 +891,7 @@ float4 SMAANeighborhoodBlendingPS(float2 texcoord,
     #define __FxaaTex sampler2D
 #else
     #define __FxaaBool bool
-    #define __FxaaDiscard clip(-1)
+    #define __FxaaDiscard discard
     #define __FxaaFloat float
     #define __FxaaFloat2 float2
     #define __FxaaFloat3 float3
