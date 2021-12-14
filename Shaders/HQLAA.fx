@@ -80,14 +80,14 @@ uniform float EdgeThreshold < __UNIFORM_SLIDER_FLOAT1
 	ui_label = "Edge Detection Threshold";
 	ui_tooltip = "Local contrast required to run shader";
         ui_category = "Normal Usage";
-> = 0.075;
+> = 0.125;
 
 uniform float Subpix < __UNIFORM_SLIDER_FLOAT1
 	ui_min = 0.0; ui_max = 1.0;
 	ui_label = "Subpixel Effects Strength";
 	ui_tooltip = "Lower = sharper image, Higher = more AA effect";
         ui_category = "Normal Usage";
-> = 0.375;
+> = 0.5;
 
 uniform int PmodeWarning <
 	ui_type = "radio";
