@@ -9,7 +9,7 @@
  *
  *  Runs CAS within FXAA to keep blur as minimal as possible
  *
- *                       v0.8 beta
+ *                       v0.81 beta
  *
  *                     by lordbean
  *
@@ -62,7 +62,7 @@ uniform float Subpix < __UNIFORM_SLIDER_FLOAT1
 	ui_label = "Subpixel Effects Strength";
 	ui_tooltip = "Lower = sharper image, Higher = more AA effect";
         ui_category = "Normal Usage";
-> = 0.5;
+> = 0.375;
 
 uniform int PmodeWarning <
 	ui_type = "radio";
@@ -199,11 +199,11 @@ uniform float SubpixBoost < __UNIFORM_SLIDER_FLOAT1
 
 #define FXAA_GREEN_AS_LUMA 1    // using a color as luma seems to work better with SMAA.
 #define SMAA_PRESET_CUSTOM
-#define SMAA_THRESHOLD max(EdgeThreshold * 0.5, 0.04)
+#define SMAA_THRESHOLD max(EdgeThreshold, 0.0625)
 #define SMAA_MAX_SEARCH_STEPS 112
-#define SMAA_CORNER_ROUNDING (Overdrive ? 50 : trunc(25 * Subpix))
+#define SMAA_CORNER_ROUNDING (Overdrive ? 50 : trunc(20 * Subpix))
 #define SMAA_MAX_SEARCH_STEPS_DIAG 20
-#define SMAA_LOCAL_CONTRAST_ADAPTATION_FACTOR (1.5 + (0.5 * Subpix) + (Overdrive ? SubpixBoost : 0))
+#define SMAA_LOCAL_CONTRAST_ADAPTATION_FACTOR (1.125 + (0.375 * Subpix) + (Overdrive ? SubpixBoost * 0.5 : 0))
 #define FXAA_QUALITY__PRESET 39
 #define FXAA_PC 1
 #define FXAA_HLSL_3 1
