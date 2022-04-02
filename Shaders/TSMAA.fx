@@ -5,7 +5,7 @@
  *
  *     Experimental multi-frame SMAA implementation
  *
- *                        v0.5
+ *                        v0.6
  *
  *                     by lordbean
  *
@@ -75,7 +75,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int TSMAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 0.5";
+	ui_label = "Version: 0.6";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"Temporal Subpixel Morphological Anti-Aliasing, a shader by lordbean\n"
 			"https://github.com/lordbean-git/TSMAA/\n"
@@ -169,15 +169,6 @@ uniform float TsmaaSmCorneringCustom < __UNIFORM_SLIDER_INT1
 	ui_category = "SMAA";
 	ui_category_closed = true;
 > = 25;
-
-uniform float TsmaaTemporalWeightCustom < __UNIFORM_SLIDER_INT1
-	ui_min = 0; ui_max = 100; ui_step = 1;
-	ui_spacing = 2;
-	ui_label = "% Weight (Last Frame)";
-	ui_tooltip = "Amount of weight given to previous frame results";
-	ui_category = "SMAA";
-	ui_category_closed = true;
-> = 25;
 #endif //TSMAA_ADVANCED_MODE
 
 #if TSMAA_OUTPUT_MODE == 1
@@ -204,15 +195,15 @@ uniform int TsmaaPresetBreakdown <
 	ui_type = "radio";
 	ui_label = " ";
 	ui_text = "\n"
-			  "---------------------------------------------------------\n"
-			  "|        |       Edges       |           SMAA           |\n"
-	          "|--Preset|-Threshold---Range-|-Corner---%Error---Weight-|\n"
-	          "|--------|-----------|-------|--------|--------|--------|\n"
-			  "|     Low|    0.25   | 60.0% |   25%  |Balanced|   10%  |\n"
-			  "|  Medium|    0.20   | 75.0% |   33%  |Balanced|   15%  |\n"
-			  "|    High|    0.12   | 80.0% |   50%  |  High  |   25%  |\n"
-			  "|   Ultra|    0.08   | 87.5% |  100%  |  Skip  |   40%  |\n"
-			  "---------------------------------------------------------";
+			  "------------------------------------------------\n"
+			  "|        |       Edges       |      SMAA       |\n"
+	          "|--Preset|-Threshold---Range-|-Corner---%Error-|\n"
+	          "|--------|-----------|-------|--------|--------|\n"
+			  "|     Low|    0.25   | 60.0% |   25%  |Balanced|\n"
+			  "|  Medium|    0.20   | 75.0% |   33%  |Balanced|\n"
+			  "|    High|    0.10   | 75.0% |   50%  |  High  |\n"
+			  "|   Ultra|    0.05   | 80.0% |  100%  |  Skip  |\n"
+			  "------------------------------------------------";
 	ui_category = "Click me to see what settings each preset uses!";
 	ui_category_closed = true;
 >;
@@ -221,21 +212,18 @@ uniform int TsmaaPresetBreakdown <
 #define __TSMAA_DYNAMIC_RANGE (float(TsmaaDynamicThresholdCustom) / 100.0)
 #define __TSMAA_SM_CORNERS (float(TsmaaSmCorneringCustom) / 100.0)
 #define __TSMAA_SM_ERRORMARGIN (TSMAA_ERRORMARGIN_CUSTOM[TsmaaEdgeErrorMarginCustom])
-#define __TSMAA_TEMPORAL_WEIGHT (float(TsmaaTemporalWeightCustom) / 100.0)
 
 #else
 
-static const float TSMAA_THRESHOLD_PRESET[4] = {0.25, 0.2, 0.12, 0.08};
-static const float TSMAA_DYNAMIC_RANGE_PRESET[4] = {0.6, 0.75, 0.8, 0.875};
+static const float TSMAA_THRESHOLD_PRESET[4] = {0.25, 0.2, 0.1, 0.05};
+static const float TSMAA_DYNAMIC_RANGE_PRESET[4] = {0.6, 0.75, 0.75, 0.8};
 static const float TSMAA_CORNER_ROUNDING_PRESET[4] = {0.25, 0.333333, 0.5, 1.0};
 static const float TSMAA_ERRORMARGIN_PRESET[4] = {5.0, 5.0, 7.0, -1.0};
-static const float TSMAA_TEMPORAL_WEIGHT_PRESET[4] = {0.1, 0.15, 0.25, 0.4};
 
 #define __TSMAA_EDGE_THRESHOLD (TSMAA_THRESHOLD_PRESET[TsmaaPreset])
 #define __TSMAA_DYNAMIC_RANGE (TSMAA_DYNAMIC_RANGE_PRESET[TsmaaPreset])
 #define __TSMAA_SM_CORNERS (TSMAA_CORNER_ROUNDING_PRESET[TsmaaPreset])
 #define __TSMAA_SM_ERRORMARGIN (TSMAA_ERRORMARGIN_PRESET[TsmaaPreset])
-#define __TSMAA_TEMPORAL_WEIGHT (TSMAA_TEMPORAL_WEIGHT_PRESET[TsmaaPreset])
 
 #endif //TSMAA_ADVANCED_MODE
 
@@ -1078,7 +1066,7 @@ void TSMAANeighborhoodBlendingVS(in uint id : SV_VertexID, out float4 position :
 /*****************************************************************************************************************************************/
 
 //////////////////////////////////////////////////////// EDGE DETECTION ///////////////////////////////////////////////////////////////////
-float4 TSMAAHybridEdgeDetection(float4 position, float2 texcoord, float4 offset[3], sampler2D previousedges)
+float4 TSMAAHybridEdgeDetectionPS(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float4 offset[3] : TEXCOORD1) : SV_Target
 {
 	float3 middle = TSMAA_DecodeTex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 adaptationaverage = middle;
@@ -1118,7 +1106,7 @@ float4 TSMAAHybridEdgeDetection(float4 position, float2 texcoord, float4 offset[
 	float maxC = TSMAAmax4(Cleft, Ctop, Cright, Cbottom);
 	
 	bool earlyExit = (abs(L - maxL) < lumathreshold.x) && (maxC < satthreshold.x);
-	if (earlyExit) return float4(edges, TSMAA_Tex2D(previousedges, texcoord).ba);
+	if (earlyExit) return float4(edges, TSMAA_Tex2D(TSMAAsamplerEdges, texcoord).ba);
 	
 	adaptationaverage /= 5.0;
 	
@@ -1170,14 +1158,14 @@ float4 TSMAAHybridEdgeDetection(float4 position, float2 texcoord, float4 offset[
 	scale = 0.5 + pow(clamp(log(rcp(dot(adaptationaverage, __TSMAA_LUMA_REF))), 1.0, BUFFER_COLOR_BIT_DEPTH), rcp(log(BUFFER_COLOR_BIT_DEPTH)));
 	edges *= step(finalDelta, scale * delta.xy);
 	
-	return float4(edges, TSMAA_Tex2D(previousedges, texcoord).ba);
+	return float4(edges, TSMAA_Tex2D(TSMAAsamplerEdges, texcoord).ba);
 }
 
 /////////////////////////////////////////////////////// ERROR REDUCTION ///////////////////////////////////////////////////////////////////
-float4 TSMAATemporalEdgeAggregation(float4 vpos, float2 texcoord, sampler2D edgesource)
+float4 TSMAATemporalEdgeAggregationPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
-	float2 edges = TSMAA_Tex2D(edgesource, texcoord).rg;
-	float2 aggregate = saturate(edges + TSMAA_Tex2D(edgesource, texcoord).ba);
+	float2 edges = TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).rg;
+	float2 aggregate = saturate(edges + TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).ba);
 	
 	// skip checking neighbors if there's already no detected edge or no error margin check is desired
 	if (!any(aggregate) || (__TSMAA_SM_ERRORMARGIN == -1.0)) return float4(aggregate, edges);
@@ -1186,14 +1174,14 @@ float4 TSMAATemporalEdgeAggregation(float4 vpos, float2 texcoord, sampler2D edge
 	if (all(aggregate)) mask = float2(0.0, 0.0);
 	else if (aggregate.g > 0.0) mask = float2(1.0, 0.0);
 	
-    float2 a = saturate(saturate(TSMAA_Tex2DOffset(edgesource, texcoord, int2(-1, -1)).rg + TSMAA_Tex2DOffset(edgesource, texcoord, int2(-1, -1)).ba) - mask);
-    float2 c = saturate(saturate(TSMAA_Tex2DOffset(edgesource, texcoord, int2(1, -1)).rg + TSMAA_Tex2DOffset(edgesource, texcoord, int2(1, -1)).ba) - mask);
-    float2 g = saturate(saturate(TSMAA_Tex2DOffset(edgesource, texcoord, int2(-1, 1)).rg + TSMAA_Tex2DOffset(edgesource, texcoord, int2(-1, 1)).ba) - mask);
-    float2 i = saturate(saturate(TSMAA_Tex2DOffset(edgesource, texcoord, int2(1, 1)).rg + TSMAA_Tex2DOffset(edgesource, texcoord, int2(1, 1)).ba) - mask);
-    float2 b = saturate(saturate(TSMAA_Tex2DOffset(edgesource, texcoord, int2(0, -1)).rg + TSMAA_Tex2DOffset(edgesource, texcoord, int2(0, -1)).ba) - mask);
-    float2 d = saturate(saturate(TSMAA_Tex2DOffset(edgesource, texcoord, int2(-1, 0)).rg + TSMAA_Tex2DOffset(edgesource, texcoord, int2(-1, 0)).ba) - mask);
-    float2 f = saturate(saturate(TSMAA_Tex2DOffset(edgesource, texcoord, int2(1, 0)).rg + TSMAA_Tex2DOffset(edgesource, texcoord, int2(1, 0)).ba) - mask);
-    float2 h = saturate(saturate(TSMAA_Tex2DOffset(edgesource, texcoord, int2(0, 1)).rg + TSMAA_Tex2DOffset(edgesource, texcoord, int2(0, 1)).ba) - mask);
+    float2 a = saturate(saturate(TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(-1, -1)).rg + TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(-1, -1)).ba) - mask);
+    float2 c = saturate(saturate(TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(1, -1)).rg + TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(1, -1)).ba) - mask);
+    float2 g = saturate(saturate(TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(-1, 1)).rg + TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(-1, 1)).ba) - mask);
+    float2 i = saturate(saturate(TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(1, 1)).rg + TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(1, 1)).ba) - mask);
+    float2 b = saturate(saturate(TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(0, -1)).rg + TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(0, -1)).ba) - mask);
+    float2 d = saturate(saturate(TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(-1, 0)).rg + TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(-1, 0)).ba) - mask);
+    float2 f = saturate(saturate(TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(1, 0)).rg + TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(1, 0)).ba) - mask);
+    float2 h = saturate(saturate(TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(0, 1)).rg + TSMAA_Tex2DOffset(TSMAAsamplerWeights, texcoord, int2(0, 1)).ba) - mask);
     
     // this case isn't mathematically handled by the mask value, partials can pass
     if (all(aggregate))
@@ -1216,46 +1204,46 @@ float4 TSMAATemporalEdgeAggregation(float4 vpos, float2 texcoord, sampler2D edge
 }
 
 /////////////////////////////////////////////////// BLEND WEIGHT CALCULATION //////////////////////////////////////////////////////////////
-float4 TSMAABlendingWeightCalculation(float4 position, float2 texcoord, float2 pixcoord, float4 offset[3], sampler2D edgessource)
+float4 TSMAABlendingWeightCalculationPS(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float2 pixcoord : TEXCOORD1, float4 offset[3] : TEXCOORD2) : SV_Target
 {
     float4 weights = float(0.0).xxxx;
-    float2 e = TSMAA_Tex2D(edgessource, texcoord).rg;
+    float2 e = TSMAA_Tex2D(TSMAAsamplerEdges, texcoord).rg;
     bool2 edges = bool2(e.r > 0.0, e.g > 0.0);
 	
 	[branch] if (edges.g) 
 	{
-        weights.rg = TSMAACalculateDiagWeights(edgessource, TSMAAsamplerAreaRef, texcoord, e, 0);
+        weights.rg = TSMAACalculateDiagWeights(TSMAAsamplerEdges, TSMAAsamplerAreaRef, texcoord, e, 0);
         [branch] if (weights.r == -weights.g)
         {
-			float3 coords = float3(TSMAASearchXLeft(edgessource, TSMAAsamplerSearchRef, offset[0].xy, offset[2].x), offset[1].y, TSMAASearchXRight(edgessource, TSMAAsamplerSearchRef, offset[0].zw, offset[2].y));
-			float e1 = TSMAA_Tex2D(edgessource, coords.xy).r;
+			float3 coords = float3(TSMAASearchXLeft(TSMAAsamplerEdges, TSMAAsamplerSearchRef, offset[0].xy, offset[2].x), offset[1].y, TSMAASearchXRight(TSMAAsamplerEdges, TSMAAsamplerSearchRef, offset[0].zw, offset[2].y));
+			float e1 = TSMAA_Tex2D(TSMAAsamplerEdges, coords.xy).r;
 			float2 d = coords.xz;
 			d = abs(round(mad(__TSMAA_BUFFER_INFO.zz, d, -pixcoord.xx)));
-			float e2 = TSMAA_Tex2DOffset(edgessource, coords.zy, int2(1, 0)).r;
+			float e2 = TSMAA_Tex2DOffset(TSMAAsamplerEdges, coords.zy, int2(1, 0)).r;
 			weights.rg = TSMAAArea(TSMAAsamplerAreaRef, sqrt(d), e1, e2, 0.0);
 			coords.y = texcoord.y;
-			TSMAADetectHorizontalCornerPattern(edgessource, weights.rg, coords.xyzy, d);
+			TSMAADetectHorizontalCornerPattern(TSMAAsamplerEdges, weights.rg, coords.xyzy, d);
 		}
 		else edges.r = false;
     }
 	
 	[branch] if (edges.r) 
 	{
-        float3 coords = float3(offset[0].x, TSMAASearchYUp(edgessource, TSMAAsamplerSearchRef, offset[1].xy, offset[2].z), TSMAASearchYDown(edgessource, TSMAAsamplerSearchRef, offset[1].zw, offset[2].w));
-        float e1 = TSMAA_Tex2D(edgessource, coords.xy).g;
+        float3 coords = float3(offset[0].x, TSMAASearchYUp(TSMAAsamplerEdges, TSMAAsamplerSearchRef, offset[1].xy, offset[2].z), TSMAASearchYDown(TSMAAsamplerEdges, TSMAAsamplerSearchRef, offset[1].zw, offset[2].w));
+        float e1 = TSMAA_Tex2D(TSMAAsamplerEdges, coords.xy).g;
 		float2 d = coords.yz;
         d = abs(round(mad(__TSMAA_BUFFER_INFO.ww, d, -pixcoord.yy)));
-        float e2 = TSMAA_Tex2DOffset(edgessource, coords.xz, int2(0, 1)).g;
+        float e2 = TSMAA_Tex2DOffset(TSMAAsamplerEdges, coords.xz, int2(0, 1)).g;
         weights.ba = TSMAAArea(TSMAAsamplerAreaRef, sqrt(d), e1, e2, 0.0);
         coords.x = texcoord.x;
-        TSMAADetectVerticalCornerPattern(edgessource, weights.ba, coords.xyxz, d);
+        TSMAADetectVerticalCornerPattern(TSMAAsamplerEdges, weights.ba, coords.xyxz, d);
     }
 
     return weights;
 }
 
 //////////////////////////////////////////////////// NEIGHBORHOOD BLENDING ////////////////////////////////////////////////////////////////
-float3 TSMAANeighborhoodBlendingP1(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
+float3 TSMAANeighborhoodBlendingPS(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
 {
     float4 m = float4(TSMAA_Tex2D(TSMAAsamplerWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).zx);
     float4 mo = float4(TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerOldWeights, texcoord).zx);
@@ -1282,7 +1270,7 @@ float3 TSMAANeighborhoodBlendingP1(float4 position : SV_Position, float2 texcoor
 }
 
 /////////////////////////////////////////////////// TEXTURE COPY FUNCTIONS ////////////////////////////////////////////////////////////////
-float4 TSMAAWeightsCopyP1(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+float4 TSMAAWeightsCopyPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	return TSMAA_Tex2D(TSMAAsamplerWeights, texcoord);
 }
@@ -1293,9 +1281,13 @@ float4 TSMAABufferCopyPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) 
 }
 
 ///////////////////////////////////////////////////// PAST-FRAME BLENDING /////////////////////////////////////////////////////////////////
-float4 TSMAAPastFramePS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+float4 TSMAAPastFramePS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
 {
-	return lerp (TSMAA_Tex2D(ReShade::BackBuffer, texcoord), TSMAA_Tex2D(TSMAAsamplerOldBuffer, texcoord), __TSMAA_TEMPORAL_WEIGHT);
+    float4 m = float4(TSMAA_Tex2D(TSMAAsamplerWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).zx);
+    float4 mo = float4(TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerOldWeights, texcoord).zx);
+	m = max(m, mo);
+	float blendweight = dot(m, float4(1,1,1,1)) / 4.0;
+	return lerp (TSMAA_Tex2D(ReShade::BackBuffer, texcoord), TSMAA_Tex2D(TSMAAsamplerOldBuffer, texcoord), blendweight);
 }
 
 ///////////////////////////////////////////////////////// SOFTENER ////////////////////////////////////////////////////////////////////////
@@ -1356,7 +1348,7 @@ float3 TSMAAImageSoftenerPS(float4 vpos : SV_Position, float2 texcoord : TEXCOOR
     float4 m = float4(TSMAA_Tex2D(TSMAAsamplerWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).zx);
     float4 mo = float4(TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerOldWeights, texcoord).zx);
 	m = max(m, mo);
-	float blending = dot(m, float4(1.0, 1.0, 1.0, 1.0)) / 4.0;
+	float blending = 0.25 + 0.75 * (dot(m, float4(1.0, 1.0, 1.0, 1.0)) / 4.0);
 	
 	return lerp(original, ConditionalEncode(localavg), blending);
 }
@@ -1368,13 +1360,9 @@ float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
     float4 m = float4(TSMAA_Tex2D(TSMAAsamplerWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).zx);
     float4 mo = float4(TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerOldWeights, texcoord).zx);
 	m = max(m, mo);
-	float maxblending = dot(m, float4(1.0, 1.0, 1.0, 1.0)) / 4.0;
+	float maxblending = 0.5 + 0.5 * (dot(m, float4(1.0, 1.0, 1.0, 1.0)) / 4.0);
     float3 middle = TSMAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
     float3 original = middle;
-    
-    // early exit check 1
-    bool earlyExit = maxblending == 0.0;
-	if (earlyExit) return original;
     
     middle = ConditionalDecode(middle);
 	
@@ -1407,7 +1395,7 @@ float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
     
 	// early exit check 2
 	bool SMAAedge = any(TSMAA_Tex2D(TSMAAsamplerEdges, texcoord).rg);
-    earlyExit = (range < __TSMAA_EDGE_THRESHOLD) && (!SMAAedge);
+    bool earlyExit = (range < __TSMAA_EDGE_THRESHOLD) && (!SMAAedge);
 	if (earlyExit) return original;
 	
     float lumaNW = dotweight(middle, TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1,-1)).rgb, useluma, __TSMAA_LUMA_REF);
@@ -1498,23 +1486,6 @@ float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
 	return TSMAA_Tex2D(ReShade::BackBuffer, posM).rgb;
 }
 
-///////////////////////////////////////////////////////// WRAPPERS ////////////////////////////////////////////////////////////////////////
-
-float4 TSMAAHybridEdgeDetectionP1(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float4 offset[3] : TEXCOORD1) : SV_Target
-{
-	return TSMAAHybridEdgeDetection(position, texcoord, offset, TSMAAsamplerEdges);
-}
-
-float4 TSMAATemporalEdgeAggregationP1(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-{
-	return TSMAATemporalEdgeAggregation(vpos, texcoord, TSMAAsamplerWeights);
-}
-
-float4 TSMAABlendingWeightCalculationP1(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float2 pixcoord : TEXCOORD1, float4 offset[3] : TEXCOORD2) : SV_Target
-{
-	return TSMAABlendingWeightCalculation(position, texcoord, pixcoord, offset, TSMAAsamplerEdges);
-}
-
 /***************************************************************************************************************************************/
 /********************************************************** SMAA SHADER CODE END *******************************************************/
 /***************************************************************************************************************************************/
@@ -1531,35 +1502,35 @@ technique TSMAA <
 	pass CopyOldWeights
 	{
 		VertexShader = PostProcessVS;
-		PixelShader = TSMAAWeightsCopyP1;
+		PixelShader = TSMAAWeightsCopyPS;
 		RenderTarget = TSMAAoldblendTex;
 		ClearRenderTargets = true;
 	}
 	pass EdgeDetection
 	{
 		VertexShader = TSMAAEdgeDetectionVS;
-		PixelShader = TSMAAHybridEdgeDetectionP1;
+		PixelShader = TSMAAHybridEdgeDetectionPS;
 		RenderTarget = TSMAAblendTex;
 		ClearRenderTargets = true;
 	}
 	pass TemporalEdgeAggregation
 	{
 		VertexShader = PostProcessVS;
-		PixelShader = TSMAATemporalEdgeAggregationP1;
+		PixelShader = TSMAATemporalEdgeAggregationPS;
 		RenderTarget = TSMAAedgesTex;
 		ClearRenderTargets = true;
 	}
 	pass SMAABlendCalculation
 	{
 		VertexShader = TSMAABlendingWeightCalculationVS;
-		PixelShader = TSMAABlendingWeightCalculationP1;
+		PixelShader = TSMAABlendingWeightCalculationPS;
 		RenderTarget = TSMAAblendTex;
 		ClearRenderTargets = true;
 	}
 	pass SMAABlending
 	{
 		VertexShader = TSMAANeighborhoodBlendingVS;
-		PixelShader = TSMAANeighborhoodBlendingP1;
+		PixelShader = TSMAANeighborhoodBlendingPS;
 	}
 	pass Softening
 	{
@@ -1573,7 +1544,7 @@ technique TSMAA <
 	}
 	pass TemporalBlending
 	{
-		VertexShader = PostProcessVS;
+		VertexShader = TSMAANeighborhoodBlendingVS;
 		PixelShader = TSMAAPastFramePS;
 	}
 	pass SaveBuffer
