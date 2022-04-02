@@ -5,7 +5,7 @@
  *
  *     Experimental multi-frame SMAA implementation
  *
- *                        v0.4
+ *                        v0.5
  *
  *                     by lordbean
  *
@@ -75,7 +75,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int TSMAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 0.4";
+	ui_label = "Version: 0.5";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"Temporal Subpixel Morphological Anti-Aliasing, a shader by lordbean\n"
 			"https://github.com/lordbean-git/TSMAA/\n"
@@ -1363,9 +1363,12 @@ float3 TSMAAImageSoftenerPS(float4 vpos : SV_Position, float2 texcoord : TEXCOOR
 
 //////////////////////////////////////////////////////// SMOOTHING ////////////////////////////////////////////////////////////////////////
 
-float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
  {
-    float maxblending = __TSMAA_SM_CORNERS;
+    float4 m = float4(TSMAA_Tex2D(TSMAAsamplerWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).zx);
+    float4 mo = float4(TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerOldWeights, texcoord).zx);
+	m = max(m, mo);
+	float maxblending = dot(m, float4(1.0, 1.0, 1.0, 1.0)) / 4.0;
     float3 middle = TSMAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
     float3 original = middle;
     
@@ -1565,7 +1568,7 @@ technique TSMAA <
 	}
 	pass Smoothing
 	{
-		VertexShader = PostProcessVS;
+		VertexShader = TSMAANeighborhoodBlendingVS;
 		PixelShader = TSMAASmoothingPS;
 	}
 	pass TemporalBlending
