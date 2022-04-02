@@ -5,7 +5,7 @@
  *
  *     Experimental multi-frame SMAA implementation
  *
- *                        v0.3
+ *                        v0.4
  *
  *                     by lordbean
  *
@@ -33,6 +33,16 @@
  * binary distributions of the Software.
  **/
  
+ /**============================================================================
+
+
+                    NVIDIA FXAA 3.11 by TIMOTHY LOTTES
+
+
+------------------------------------------------------------------------------
+COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
+------------------------------------------------------------------------------*/
+
  /*------------------------------------------------------------------------------
  * THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -65,7 +75,7 @@
 uniform int TSMAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 0.3";
+	ui_label = "Version: 0.4";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"Temporal Subpixel Morphological Anti-Aliasing, a shader by lordbean\n"
 			"https://github.com/lordbean-git/TSMAA/\n"
@@ -1351,6 +1361,140 @@ float3 TSMAAImageSoftenerPS(float4 vpos : SV_Position, float2 texcoord : TEXCOOR
 	return lerp(original, ConditionalEncode(localavg), blending);
 }
 
+//////////////////////////////////////////////////////// SMOOTHING ////////////////////////////////////////////////////////////////////////
+
+float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+ {
+    float maxblending = __TSMAA_SM_CORNERS;
+    float3 middle = TSMAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
+    float3 original = middle;
+    
+    // early exit check 1
+    bool earlyExit = maxblending == 0.0;
+	if (earlyExit) return original;
+    
+    middle = ConditionalDecode(middle);
+	
+	float lumaM = dot(middle, __TSMAA_LUMA_REF);
+	
+	float3 neighbor = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 0, 1)).rgb;
+    float lumaS = dotweight(middle, neighbor, true, __TSMAA_LUMA_REF);
+    float chromaS = dotweight(middle, neighbor, false, __TSMAA_LUMA_REF);
+    
+	neighbor = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 1, 0)).rgb;
+    float lumaE = dotweight(middle, neighbor, true, __TSMAA_LUMA_REF);
+    float chromaE = dotweight(middle, neighbor, false, __TSMAA_LUMA_REF);
+    
+	neighbor = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 0,-1)).rgb;
+    float lumaN = dotweight(middle, neighbor, true, __TSMAA_LUMA_REF);
+    float chromaN = dotweight(middle, neighbor, false, __TSMAA_LUMA_REF);
+    
+	neighbor = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb;
+    float lumaW = dotweight(middle, neighbor, true, __TSMAA_LUMA_REF);
+    float chromaW = dotweight(middle, neighbor, false, __TSMAA_LUMA_REF);
+    
+    bool useluma = TSMAAmax4(abs(lumaS - lumaM), abs(lumaE - lumaM), abs(lumaN - lumaM), abs(lumaW - lumaM)) > TSMAAmax4(chromaS, chromaE, chromaN, chromaW);
+    
+    if (!useluma) { lumaS = chromaS; lumaE = chromaE; lumaN = chromaN; lumaW = chromaW; lumaM = 0.0; }
+	
+    float rangeMax = TSMAAmax5(lumaS, lumaE, lumaN, lumaW, lumaM);
+    float rangeMin = TSMAAmin5(lumaS, lumaE, lumaN, lumaW, lumaM);
+	
+    float range = rangeMax - rangeMin;
+    
+	// early exit check 2
+	bool SMAAedge = any(TSMAA_Tex2D(TSMAAsamplerEdges, texcoord).rg);
+    earlyExit = (range < __TSMAA_EDGE_THRESHOLD) && (!SMAAedge);
+	if (earlyExit) return original;
+	
+    float lumaNW = dotweight(middle, TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1,-1)).rgb, useluma, __TSMAA_LUMA_REF);
+    float lumaSE = dotweight(middle, TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 1, 1)).rgb, useluma, __TSMAA_LUMA_REF);
+    float lumaNE = dotweight(middle, TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 1,-1)).rgb, useluma, __TSMAA_LUMA_REF);
+    float lumaSW = dotweight(middle, TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 1)).rgb, useluma, __TSMAA_LUMA_REF);
+	
+    bool horzSpan = (abs(mad(-2.0, lumaW, lumaNW + lumaSW)) + mad(2.0, abs(mad(-2.0, lumaM, lumaN + lumaS)), abs(mad(-2.0, lumaE, lumaNE + lumaSE)))) >= (abs(mad(-2.0, lumaS, lumaSW + lumaSE)) + mad(2.0, abs(mad(-2.0, lumaM, lumaW + lumaE)), abs(mad(-2.0, lumaN, lumaNW + lumaNE))));	
+    float lengthSign = horzSpan ? BUFFER_RCP_HEIGHT : BUFFER_RCP_WIDTH;
+	
+	float2 lumaNP = float2(lumaN, lumaS);
+	TSMAAMovc(bool(!horzSpan).xx, lumaNP, float2(lumaW, lumaE));
+	
+    float gradientN = lumaNP.x - lumaM;
+    float gradientS = lumaNP.y - lumaM;
+    float lumaNN = lumaNP.x + lumaM;
+	
+    if (abs(gradientN) >= abs(gradientS)) lengthSign = -lengthSign;
+    else lumaNN = lumaNP.y + lumaM;
+	
+    float2 posB = texcoord;
+	
+	float texelsize = 0.5;
+
+    float2 offNP = float2(0.0, BUFFER_RCP_HEIGHT * texelsize);
+	TSMAAMovc(bool(horzSpan).xx, offNP, float2(BUFFER_RCP_WIDTH * texelsize, 0.0));
+	TSMAAMovc(bool2(!horzSpan, horzSpan), posB, float2(posB.x + lengthSign / 2.0, posB.y + lengthSign / 2.0));
+	
+    float2 posN = posB - offNP;
+    float2 posP = posB + offNP;
+    
+    float lumaEndN = dotweight(middle, TSMAA_DecodeTex2D(ReShade::BackBuffer, posN).rgb, useluma, __TSMAA_LUMA_REF);
+    float lumaEndP = dotweight(middle, TSMAA_DecodeTex2D(ReShade::BackBuffer, posP).rgb, useluma, __TSMAA_LUMA_REF);
+	
+    float gradientScaled = max(abs(gradientN), abs(gradientS)) * 0.25;
+    bool lumaMLTZero = mad(0.5, -lumaNN, lumaM) < 0.0;
+	
+	lumaNN *= 0.5;
+	
+    lumaEndN -= lumaNN;
+    lumaEndP -= lumaNN;
+	
+    bool doneN = abs(lumaEndN) >= gradientScaled;
+    bool doneP = abs(lumaEndP) >= gradientScaled;
+    bool doneNP;
+	
+	// 10 pixel scan distance
+	uint iterations = 0;
+	uint maxiterations = 20;
+	
+	[loop] while (iterations < maxiterations)
+	{
+		doneNP = doneN && doneP;
+		if (doneNP) break;
+		if (!doneN)
+		{
+			posN -= offNP;
+			lumaEndN = dotweight(middle, TSMAA_DecodeTex2D(ReShade::BackBuffer, posN).rgb, useluma, __TSMAA_LUMA_REF);
+			lumaEndN -= lumaNN;
+			doneN = abs(lumaEndN) >= gradientScaled;
+		}
+		if (!doneP)
+		{
+			posP += offNP;
+			lumaEndP = dotweight(middle, TSMAA_DecodeTex2D(ReShade::BackBuffer, posP).rgb, useluma, __TSMAA_LUMA_REF);
+			lumaEndP -= lumaNN;
+			doneP = abs(lumaEndP) >= gradientScaled;
+		}
+		iterations++;
+    }
+	
+	float2 dstNP = float2(texcoord.y - posN.y, posP.y - texcoord.y);
+	TSMAAMovc(bool(horzSpan).xx, dstNP, float2(texcoord.x - posN.x, posP.x - texcoord.x));
+	
+    bool goodSpan = (dstNP.x < dstNP.y) ? ((lumaEndN < 0.0) != lumaMLTZero) : ((lumaEndP < 0.0) != lumaMLTZero);
+    float pixelOffset = mad(-rcp(dstNP.y + dstNP.x), min(dstNP.x, dstNP.y), 0.5);
+    float subpixOut = pixelOffset * maxblending;
+	
+	[branch] if (!goodSpan)
+	{
+		subpixOut = mad(mad(2.0, lumaS + lumaE + lumaN + lumaW, lumaNW + lumaSE + lumaNE + lumaSW), 0.083333, -lumaM) * rcp(range); //ABC
+		subpixOut = pow(saturate(mad(-2.0, subpixOut, 3.0) * (subpixOut * subpixOut)), 2.0) * maxblending * pixelOffset; // DEFGH
+	}
+
+    float2 posM = texcoord;
+	TSMAAMovc(bool2(!horzSpan, horzSpan), posM, float2(posM.x + lengthSign * subpixOut, posM.y + lengthSign * subpixOut));
+    
+	return TSMAA_Tex2D(ReShade::BackBuffer, posM).rgb;
+}
+
 ///////////////////////////////////////////////////////// WRAPPERS ////////////////////////////////////////////////////////////////////////
 
 float4 TSMAAHybridEdgeDetectionP1(float4 position : SV_Position, float2 texcoord : TEXCOORD0, float4 offset[3] : TEXCOORD1) : SV_Target
@@ -1418,6 +1562,11 @@ technique TSMAA <
 	{
 		VertexShader = TSMAANeighborhoodBlendingVS;
 		PixelShader = TSMAAImageSoftenerPS;
+	}
+	pass Smoothing
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = TSMAASmoothingPS;
 	}
 	pass TemporalBlending
 	{
