@@ -5,7 +5,7 @@
  *
  *     Experimental multi-frame SMAA implementation
  *
- *                        v0.8
+ *                        v0.9
  *
  *                     by lordbean
  *
@@ -75,7 +75,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int TSMAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 0.8";
+	ui_label = "Version: 0.9";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"Temporal Subpixel Morphological Anti-Aliasing, a shader by lordbean\n"
 			"https://github.com/lordbean-git/TSMAA/\n"
@@ -237,6 +237,7 @@ static const float TSMAA_ERRORMARGIN_PRESET[4] = {7.0, 7.0, -1.0, -1.0};
 
 #define __TSMAA_DISPLAY_NUMERATOR max(BUFFER_HEIGHT, BUFFER_WIDTH)
 #define __TSMAA_SMALLEST_COLOR_STEP rcp(pow(2, BUFFER_COLOR_BIT_DEPTH))
+#define __TSMAA_MINIMUM_CONTRAST (__TSMAA_SMALLEST_COLOR_STEP * 2.0)
 #define __TSMAA_CONST_E 2.718282
 #define __TSMAA_LUMA_REF float3(0.333333, 0.333334, 0.333333)
 
@@ -1194,6 +1195,8 @@ float4 TSMAAHybridEdgeDetectionPS(float4 position : SV_Position, float2 texcoord
 	float lumamult = 1.0 - dot(middle, __TSMAA_LUMA_REF);
 	float2 lumathreshold = mad(lumamult, -(__TSMAA_DYNAMIC_RANGE * basethreshold), basethreshold).xx;
 	float2 satthreshold = mad(satmult, -(__TSMAA_DYNAMIC_RANGE * basethreshold), basethreshold).xx;
+	lumathreshold = max(lumathreshold, __TSMAA_MINIMUM_CONTRAST.xx);
+	satthreshold = max(satthreshold, __TSMAA_MINIMUM_CONTRAST.xx);
 	
 	float2 edges = float(0.0).xx;
 	
@@ -1387,8 +1390,12 @@ float3 TSMAANeighborhoodBlendingPS(float4 position : SV_Position, float2 texcoor
         TSMAAMovc(bool(horiz).xx, blendingWeight, m.xz);
         blendingWeight /= dot(blendingWeight, float(1.0).xx);
         float4 blendingCoord = mad(blendingOffset, float4(__TSMAA_BUFFER_INFO.xy, -__TSMAA_BUFFER_INFO.xy), texcoord.xyxy);
-        resultAA = blendingWeight.x * TSMAA_DecodeTex2D(ReShade::BackBuffer, blendingCoord.xy).rgb;
-        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(ReShade::BackBuffer, blendingCoord.zw).rgb;
+        resultAA = blendingWeight.x * TSMAA_DecodeTex2D(ReShade::BackBuffer, blendingCoord.xy).rgb * 0.4;
+        resultAA += blendingWeight.x * TSMAA_DecodeTex2D(TSMAAsamplerNegativeJitter, blendingCoord.xy).rgb * 0.3;
+        resultAA += blendingWeight.x * TSMAA_DecodeTex2D(TSMAAsamplerPositiveJitter, blendingCoord.xy).rgb * 0.3;
+        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(ReShade::BackBuffer, blendingCoord.zw).rgb * 0.4;
+        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(TSMAAsamplerNegativeJitter, blendingCoord.zw).rgb * 0.3;
+        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(TSMAAsamplerPositiveJitter, blendingCoord.zw).rgb * 0.3;
 		resultAA = ConditionalEncode(resultAA);
     }
     
@@ -1416,76 +1423,7 @@ float4 TSMAAPastFramePS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
 	return lerp (TSMAA_Tex2D(ReShade::BackBuffer, texcoord), TSMAA_Tex2D(TSMAAsamplerOldBuffer, texcoord), blendweight);
 }
 
-///////////////////////////////////////////////////////// SOFTENER ////////////////////////////////////////////////////////////////////////
-
-float3 TSMAAImageSoftenerPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
-{
-	float3 a, b, c, d;
-	
-// pattern:
-//  e f g
-//  h a b
-//  i c d
-
-#if __RENDERER__ >= 0xa000
-	float4 cdbared = tex2Dgather(ReShade::BackBuffer, texcoord, 0);
-	float4 cdbagreen = tex2Dgather(ReShade::BackBuffer, texcoord, 1);
-	float4 cdbablue = tex2Dgather(ReShade::BackBuffer, texcoord, 2);
-	a = float3(cdbared.w, cdbagreen.w, cdbablue.w);
-	float3 original = a;
-	a = ConditionalDecode(a);
-	b = ConditionalDecode(float3(cdbared.z, cdbagreen.z, cdbablue.z));
-	c = ConditionalDecode(float3(cdbared.x, cdbagreen.x, cdbablue.x));
-	d = ConditionalDecode(float3(cdbared.y, cdbagreen.y, cdbablue.y));
-#else
-	a = TSMAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
-	float3 original = a;
-	a = ConditionalDecode(a);
-	b = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(1, 0)).rgb;
-	c = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(0, 1)).rgb;
-	d = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(1, 1)).rgb;
-#endif
-	float3 e = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, -1)).rgb;
-	float3 f = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(0, -1)).rgb;
-	float3 g = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(1, -1)).rgb;
-	float3 h = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb;
-	float3 i = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 1)).rgb;
-	
-    float4 m = float4(TSMAA_Tex2D(TSMAAsamplerWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).zx);
-    float4 mo = float4(TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerOldWeights, texcoord).zx);
-	m = max(m, mo);
-	float blending = (0.666667 * (dot(m, float4(1.0, 1.0, 1.0, 1.0)) / 4.0)) + (0.333333 * TSMAAmax4(m.r, m.g, m.b, m.a));
-	
-	// early exit check
-	bool earlyExit = blending == 0.0;
-	if (earlyExit) return original;
-	
-	
-	float3 x1 = (e + f + g) / 3.0;
-	float3 x2 = (h + a + b) / 3.0;
-	float3 x3 = (i + c + d) / 3.0;
-	float3 y1 = (e + h + i) / 3.0;
-	float3 y2 = (f + a + c) / 3.0;
-	float3 y3 = (g + b + d) / 3.0;
-	float3 xy1 = (e + a + d) / 3.0;
-	float3 xy2 = (i + a + g) / 3.0;
-	float3 diamond = (h + f + c + b) / 4.0;
-	float3 square = (e + g + i + d) / 4.0;
-	float3 cap = (h + e + f + g + b) / 5.0;
-	float3 bucket = (h + i + c + d + b) / 5.0;
-	float3 letter = (f + e + h + i + c) / 5.0;
-	float3 magnet = (f + g + b + d + c) / 5.0;
-	
-	float3 highterm = TSMAAmax14(x1, x2, x3, y1, y2, y3, xy1, xy2, diamond, square, cap, bucket, letter, magnet);
-	float3 lowterm = TSMAAmin14(x1, x2, x3, y1, y2, y3, xy1, xy2, diamond, square, cap, bucket, letter, magnet);
-	
-	float3 localavg = ((a + x1 + x2 + x3 + y1 + y2 + y3 + xy1 + xy2 + diamond + square + cap + bucket + letter + magnet) - (highterm + lowterm)) / 13.0;
-	
-	return lerp(original, ConditionalEncode(localavg), blending);
-}
-
 //////////////////////////////////////////////////////// SMOOTHING ////////////////////////////////////////////////////////////////////////
-
 float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
  {
     float4 m = float4(TSMAA_Tex2D(TSMAAsamplerWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).zx);
@@ -1526,7 +1464,7 @@ float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
     
 	// early exit check 2
 	bool SMAAedge = any(TSMAA_Tex2D(TSMAAsamplerEdges, texcoord).rg);
-    bool earlyExit = (range < __TSMAA_EDGE_THRESHOLD) && (!SMAAedge);
+    bool earlyExit = (range < max(__TSMAA_EDGE_THRESHOLD, __TSMAA_MINIMUM_CONTRAST)) && (!SMAAedge);
 	if (earlyExit) return original;
 	
     float lumaNW = dotweight(middle, TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1,-1)).rgb, useluma, __TSMAA_LUMA_REF);
@@ -1614,7 +1552,7 @@ float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
     float2 posM = texcoord;
 	TSMAAMovc(bool2(!horzSpan, horzSpan), posM, float2(posM.x + lengthSign * subpixOut, posM.y + lengthSign * subpixOut));
     
-	return TSMAA_Tex2D(ReShade::BackBuffer, posM).rgb;
+	return (0.6 * TSMAA_Tex2D(ReShade::BackBuffer, posM).rgb + 0.2 * TSMAA_Tex2D(TSMAAsamplerNegativeJitter, posM).rgb + 0.2 * TSMAA_Tex2D(TSMAAsamplerPositiveJitter, posM).rgb);
 }
 
 /***************************************************************************************************************************************/
@@ -1690,11 +1628,6 @@ technique TSMAA <
 	{
 		VertexShader = TSMAANeighborhoodBlendingVS;
 		PixelShader = TSMAANeighborhoodBlendingPS;
-	}
-	pass Softening
-	{
-		VertexShader = TSMAANeighborhoodBlendingVS;
-		PixelShader = TSMAAImageSoftenerPS;
 	}
 	pass Smoothing
 	{
