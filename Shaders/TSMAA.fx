@@ -5,7 +5,7 @@
  *
  *     Experimental multi-frame SMAA implementation
  *
- *                        v0.10
+ *                        v0.11
  *
  *                     by lordbean
  *
@@ -75,7 +75,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int TSMAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 0.10";
+	ui_label = "Version: 0.11";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"Temporal Subpixel Morphological Anti-Aliasing, a shader by lordbean\n"
 			"https://github.com/lordbean-git/TSMAA/\n"
@@ -1629,6 +1629,72 @@ float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
 	return TSMAA_Tex2D(ReShade::BackBuffer, posM).rgb;
 }
 
+////////////////////////////////////////////////////////////// SOFTENING ////////////////////////////////////////////////////////////////
+float3 TSMAASofteningPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, float4 offset : TEXCOORD1) : SV_Target
+{
+	float3 a, b, c, d;
+	
+    float4 m = float4(TSMAA_Tex2D(TSMAAsamplerWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).zx);
+    float4 mo = float4(TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerOldWeights, texcoord).zx);
+	m = max(m, mo);
+    bool horiz = max(m.x, m.z) > max(m.y, m.w);
+	float maxblending = (0.5 * (dot(m, float4(1.0, 1.0, 1.0, 1.0)) / 4.0)) + (0.5 * TSMAAmax4(m.r, m.g, m.b, m.a));
+	
+// pattern:
+//  e f g
+//  h a b
+//  i c d
+
+#if __RENDERER__ >= 0xa000
+	float4 cdbared = tex2Dgather(ReShade::BackBuffer, texcoord, 0);
+	float4 cdbagreen = tex2Dgather(ReShade::BackBuffer, texcoord, 1);
+	float4 cdbablue = tex2Dgather(ReShade::BackBuffer, texcoord, 2);
+	a = float3(cdbared.w, cdbagreen.w, cdbablue.w);
+	float3 original = a;
+	a = ConditionalDecode(a);
+	b = ConditionalDecode(float3(cdbared.z, cdbagreen.z, cdbablue.z));
+	c = ConditionalDecode(float3(cdbared.x, cdbagreen.x, cdbablue.x));
+	d = ConditionalDecode(float3(cdbared.y, cdbagreen.y, cdbablue.y));
+#else
+	a = TSMAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
+	float3 original = a;
+	a = ConditionalDecode(a);
+	b = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(1, 0)).rgb;
+	c = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(0, 1)).rgb;
+	d = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(1, 1)).rgb;
+#endif
+	float3 e = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, -1)).rgb;
+	float3 f = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(0, -1)).rgb;
+	float3 g = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(1, -1)).rgb;
+	float3 h = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb;
+	float3 i = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 1)).rgb;
+	
+	float3 x1 = (e + f + g) / 3.0;
+	float3 x2 = (h + a + b) / 3.0;
+	float3 x3 = (i + c + d) / 3.0;
+	float3 cap = (h + e + f + g + b) / 5.0;
+	float3 bucket = (h + i + c + d + b) / 5.0;
+	if (!horiz)
+	{
+		x1 = (e + h + i) / 3.0;
+		x2 = (f + a + c) / 3.0;
+		x3 = (g + b + d) / 3.0;
+		cap = (f + e + h + i + c) / 5.0;
+		bucket = (f + g + b + d + c) / 5.0;
+	}
+	float3 xy1 = (e + a + d) / 3.0;
+	float3 xy2 = (i + a + g) / 3.0;
+	float3 diamond = (h + f + c + b) / 4.0;
+	float3 square = (e + g + i + d) / 4.0;
+	
+	float3 highterm = TSMAAmax9(x1, x2, x3, xy1, xy2, diamond, square, cap, bucket);
+	float3 lowterm = TSMAAmin9(x1, x2, x3, xy1, xy2, diamond, square, cap, bucket);
+	
+	float3 localavg = ((a + x1 + x2 + x3 + xy1 + xy2 + diamond + square + cap + bucket) - (highterm + lowterm)) / 8.0;
+	
+	return lerp (original, ConditionalEncode(localavg), maxblending);
+}
+
 /***************************************************************************************************************************************/
 /********************************************************** SMAA SHADER CODE END *******************************************************/
 /***************************************************************************************************************************************/
@@ -1716,6 +1782,11 @@ technique TSMAA <
 	{
 		VertexShader = TSMAANeighborhoodBlendingVS;
 		PixelShader = TSMAANeighborhoodBlendingPS;
+	}
+	pass Softening
+	{
+		VertexShader = TSMAANeighborhoodBlendingVS;
+		PixelShader = TSMAASofteningPS;
 	}
 	pass Smoothing
 	{
