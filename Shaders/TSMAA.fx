@@ -5,8 +5,6 @@
  *
  *     Experimental multi-frame SMAA implementation
  *
- *                        v0.12
- *
  *                     by lordbean
  *
  */
@@ -75,7 +73,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int TSMAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 0.12";
+	ui_label = "Version: 0.13";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"Temporal Subpixel Morphological Anti-Aliasing, a shader by lordbean\n"
 			"https://github.com/lordbean-git/TSMAA/\n"
@@ -901,28 +899,26 @@ void TSMAADetectVerticalCornerPattern(sampler2D TSMAAedgesTex, inout float2 weig
     weights *= saturate(factor);
 }
 
-float2 TSMAAJitterEdgeDetection(float2 texcoord, float4 offset[3], sampler2D buffersource, float threshold, bool useluma, float scale)
+float2 TSMAAJitterEdgeDetection(float2 texcoord, float4 offset[3], sampler2D buffersource, float2 threshold, bool useluma, float scale, float2 jitter)
 {
-	float3 middle = TSMAA_Tex2D(buffersource, texcoord).rgb;
+	float3 middle = TSMAA_DecodeTex2D(buffersource, texcoord + jitter).rgb;
 	float2 edges = float(0.0).xx;
 	
     float L = dotweight(middle, middle, useluma, __TSMAA_LUMA_REF);
-    float Lleft = dotweight(middle, TSMAA_Tex2D(buffersource, offset[0].xy).rgb, useluma, __TSMAA_LUMA_REF);
-    float Ltop = dotweight(middle, TSMAA_Tex2D(buffersource, offset[0].zw).rgb, useluma, __TSMAA_LUMA_REF);
-    float Lright = dotweight(middle, TSMAA_Tex2D(buffersource, offset[1].xy).rgb, useluma, __TSMAA_LUMA_REF);
-	float Lbottom = dotweight(middle, TSMAA_Tex2D(buffersource, offset[1].zw).rgb, useluma, __TSMAA_LUMA_REF);
+    float Lleft = dotweight(middle, TSMAA_DecodeTex2D(buffersource, offset[0].xy + jitter).rgb, useluma, __TSMAA_LUMA_REF);
+    float Ltop = dotweight(middle, TSMAA_DecodeTex2D(buffersource, offset[0].zw + jitter).rgb, useluma, __TSMAA_LUMA_REF);
+    float Lright = dotweight(middle, TSMAA_DecodeTex2D(buffersource, offset[1].xy + jitter).rgb, useluma, __TSMAA_LUMA_REF);
+	float Lbottom = dotweight(middle, TSMAA_DecodeTex2D(buffersource, offset[1].zw + jitter).rgb, useluma, __TSMAA_LUMA_REF);
 	
     float4 delta = abs(L - float4(Lleft, Ltop, Lright, Lbottom));
-	edges = step(threshold.xx, delta.xy);
+	edges = step(threshold, delta.xy);
 	float2 maxDelta = max(delta.xy, delta.zw);
 	
-	/*
-	float Lleftleft = dotweight(middle, TSMAA_DecodeTex2D(buffersource, offset[2].xy).rgb, useluma, __TSMAA_LUMA_REF);
-	float Ltoptop = dotweight(middle, TSMAA_DecodeTex2D(buffersource, offset[2].zw).rgb, useluma, __TSMAA_LUMA_REF);
+	float Lleftleft = dotweight(middle, TSMAA_DecodeTex2D(buffersource, offset[2].xy + jitter).rgb, useluma, __TSMAA_LUMA_REF);
+	float Ltoptop = dotweight(middle, TSMAA_DecodeTex2D(buffersource, offset[2].zw + jitter).rgb, useluma, __TSMAA_LUMA_REF);
 	
 	delta.zw = abs(float2(Lleft, Ltop) - float2(Lleftleft, Ltoptop));
 	maxDelta = max(maxDelta, delta.zw);
-	*/
 	
 	float finalDelta = max(maxDelta.x, maxDelta.y);
 	
@@ -1024,82 +1020,6 @@ texture TSMAAoldbufferTex
 #endif
 };
 
-texture TSMAAnegativejitterTex
-#if __RESHADE__ >= 50000
-< pooled = true; >
-#else
-< pooled = false; >
-#endif
-{
-	Width = BUFFER_WIDTH;
-	Height = BUFFER_HEIGHT;
-
-#if BUFFER_COLOR_BIT_DEPTH == 10
-	Format = RGB10A2;
-#elif BUFFER_COLOR_BIT_DEPTH > 8
-	Format = RGBA16F;
-#else
-	Format = RGBA8;
-#endif
-};
-
-texture TSMAApositivejitterTex
-#if __RESHADE__ >= 50000
-< pooled = true; >
-#else
-< pooled = false; >
-#endif
-{
-	Width = BUFFER_WIDTH;
-	Height = BUFFER_HEIGHT;
-
-#if BUFFER_COLOR_BIT_DEPTH == 10
-	Format = RGB10A2;
-#elif BUFFER_COLOR_BIT_DEPTH > 8
-	Format = RGBA16F;
-#else
-	Format = RGBA8;
-#endif
-};
-
-texture TSMAAnegativejitteroddTex
-#if __RESHADE__ >= 50000
-< pooled = true; >
-#else
-< pooled = false; >
-#endif
-{
-	Width = BUFFER_WIDTH;
-	Height = BUFFER_HEIGHT;
-
-#if BUFFER_COLOR_BIT_DEPTH == 10
-	Format = RGB10A2;
-#elif BUFFER_COLOR_BIT_DEPTH > 8
-	Format = RGBA16F;
-#else
-	Format = RGBA8;
-#endif
-};
-
-texture TSMAApositivejitteroddTex
-#if __RESHADE__ >= 50000
-< pooled = true; >
-#else
-< pooled = false; >
-#endif
-{
-	Width = BUFFER_WIDTH;
-	Height = BUFFER_HEIGHT;
-
-#if BUFFER_COLOR_BIT_DEPTH == 10
-	Format = RGB10A2;
-#elif BUFFER_COLOR_BIT_DEPTH > 8
-	Format = RGBA16F;
-#else
-	Format = RGBA8;
-#endif
-};
-
 texture TSMAAareaTex < source = "AreaTex.png"; >
 {
 	Width = 160;
@@ -1139,26 +1059,6 @@ sampler TSMAAsamplerOldWeights
 sampler TSMAAsamplerOldBuffer
 {
 	Texture = TSMAAoldbufferTex;
-};
-
-sampler TSMAAsamplerPositiveJitter
-{
-	Texture = TSMAApositivejitterTex;
-};
-
-sampler TSMAAsamplerNegativeJitter
-{
-	Texture = TSMAAnegativejitterTex;
-};
-
-sampler TSMAAsamplerPositiveJitterOdd
-{
-	Texture = TSMAApositivejitteroddTex;
-};
-
-sampler TSMAAsamplerNegativeJitterOdd
-{
-	Texture = TSMAAnegativejitteroddTex;
 };
 
 sampler TSMAAsamplerAreaRef
@@ -1217,31 +1117,6 @@ void TSMAANeighborhoodBlendingVS(in uint id : SV_VertexID, out float4 position :
 /********************************************************** SMAA SHADER CODE START *******************************************************/
 /*****************************************************************************************************************************************/
 
-///////////////////////////////////////////////////////// BUFFER JITTER ///////////////////////////////////////////////////////////////////
-float4 TSMAAPositiveJitterPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-{
-	float2 coords = texcoord + __TSMAA_JITTER;
-	return TSMAA_DecodeTex2D(ReShade::BackBuffer, coords);
-}
-
-float4 TSMAANegativeJitterPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-{
-	float2 coords = texcoord - __TSMAA_JITTER;
-	return TSMAA_DecodeTex2D(ReShade::BackBuffer, coords);
-}
-
-float4 TSMAAPositiveJitterOddPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-{
-	float2 coords = texcoord + __TSMAA_JITTER_ODD;
-	return TSMAA_DecodeTex2D(ReShade::BackBuffer, coords);
-}
-
-float4 TSMAANegativeJitterOddPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
-{
-	float2 coords = texcoord - __TSMAA_JITTER_ODD;
-	return TSMAA_DecodeTex2D(ReShade::BackBuffer, coords);
-}
-
 //////////////////////////////////////////////////// TEMPORAL EDGE TRANSFER ///////////////////////////////////////////////////////////////
 float4 TSMAAMergeEdgesPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
@@ -1292,10 +1167,10 @@ float4 TSMAAHybridEdgeDetectionPS(float4 position : SV_Position, float2 texcoord
 	float scale = 0.5 + pow(clamp(log(rcp(Laverage)), 1.0, BUFFER_COLOR_BIT_DEPTH), rcp(log(BUFFER_COLOR_BIT_DEPTH)));
 	edges *= step(finalDelta, scale * delta.xy);
 	
-	float2 edgejitterN = TSMAAJitterEdgeDetection(texcoord, offset, TSMAAsamplerNegativeJitter, threshold.x, useluma, scale);
-	float2 edgejitterP = TSMAAJitterEdgeDetection(texcoord, offset, TSMAAsamplerPositiveJitter, threshold.x, useluma, scale);
-	float2 edgejitterNO = TSMAAJitterEdgeDetection(texcoord, offset, TSMAAsamplerNegativeJitterOdd, threshold.x, useluma, scale);
-	float2 edgejitterPO = TSMAAJitterEdgeDetection(texcoord, offset, TSMAAsamplerPositiveJitterOdd, threshold.x, useluma, scale);
+	float2 edgejitterN = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, -__TSMAA_JITTER);
+	float2 edgejitterP = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, __TSMAA_JITTER);
+	float2 edgejitterNO = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, -__TSMAA_JITTER_ODD);
+	float2 edgejitterPO = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, __TSMAA_JITTER_ODD);
 	
 	edges = saturate(edges + edgejitterN + edgejitterP + edgejitterNO + edgejitterPO);
 	
@@ -1402,16 +1277,8 @@ float3 TSMAANeighborhoodBlendingPS(float4 position : SV_Position, float2 texcoor
         TSMAAMovc(bool(horiz).xx, blendingWeight, m.xz);
         blendingWeight /= dot(blendingWeight, float(1.0).xx);
         float4 blendingCoord = mad(blendingOffset, float4(__TSMAA_BUFFER_INFO.xy, -__TSMAA_BUFFER_INFO.xy), texcoord.xyxy);
-        resultAA = blendingWeight.x * TSMAA_DecodeTex2D(ReShade::BackBuffer, blendingCoord.xy).rgb * 0.5;
-        resultAA += blendingWeight.x * TSMAA_DecodeTex2D(TSMAAsamplerNegativeJitter, blendingCoord.xy).rgb * 0.125;
-        resultAA += blendingWeight.x * TSMAA_DecodeTex2D(TSMAAsamplerPositiveJitter, blendingCoord.xy).rgb * 0.125;
-        resultAA += blendingWeight.x * TSMAA_DecodeTex2D(TSMAAsamplerNegativeJitterOdd, blendingCoord.xy).rgb * 0.125;
-        resultAA += blendingWeight.x * TSMAA_DecodeTex2D(TSMAAsamplerPositiveJitterOdd, blendingCoord.xy).rgb * 0.125;
-        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(ReShade::BackBuffer, blendingCoord.zw).rgb * 0.5;
-        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(TSMAAsamplerNegativeJitter, blendingCoord.zw).rgb * 0.125;
-        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(TSMAAsamplerPositiveJitter, blendingCoord.zw).rgb * 0.125;
-        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(TSMAAsamplerNegativeJitterOdd, blendingCoord.zw).rgb * 0.125;
-        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(TSMAAsamplerPositiveJitterOdd, blendingCoord.zw).rgb * 0.125;
+        resultAA = blendingWeight.x * TSMAA_DecodeTex2D(ReShade::BackBuffer, blendingCoord.xy).rgb;
+        resultAA += blendingWeight.y * TSMAA_DecodeTex2D(ReShade::BackBuffer, blendingCoord.zw).rgb;
 		resultAA = ConditionalEncode(resultAA);
     }
     
@@ -1447,6 +1314,8 @@ float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
     float4 m = float4(TSMAA_Tex2D(TSMAAsamplerWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerWeights, texcoord).zx);
     float4 mo = float4(TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerOldWeights, texcoord).zx);
 	m = max(m, mo);
+    bool smaahoriz = max(m.x, m.z) > max(m.y, m.w);
+    bool smaadata = dot(m, float4(1,1,1,1)) != 0.0;
 	float maxblending = 0.5 + (0.5 * TSMAAmax4(m.r, m.g, m.b, m.a));
     float3 middle = TSMAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
     float3 original = middle;
@@ -1480,6 +1349,8 @@ float3 TSMAASmoothingPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
 	
     bool horzSpan = (abs(mad(-2.0, lumaW, lumaNW + lumaSW)) + mad(2.0, abs(mad(-2.0, lumaM, lumaN + lumaS)), abs(mad(-2.0, lumaE, lumaNE + lumaSE)))) >= (abs(mad(-2.0, lumaS, lumaSW + lumaSE)) + mad(2.0, abs(mad(-2.0, lumaM, lumaW + lumaE)), abs(mad(-2.0, lumaN, lumaNW + lumaNE))));	
     float lengthSign = horzSpan ? BUFFER_RCP_HEIGHT : BUFFER_RCP_WIDTH;
+    if (((horzSpan) && ((smaahoriz) && (smaadata))) || ((!horzSpan) && ((!smaahoriz) && (smaadata)))) maxblending *= 0.5;
+    else maxblending = min(maxblending * 1.5, 1.0);
 	
 	float2 lumaNP = float2(lumaN, lumaS);
 	TSMAAMovc(bool(!horzSpan).xx, lumaNP, float2(lumaW, lumaE));
@@ -1570,9 +1441,9 @@ float3 TSMAASofteningPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
     float4 mo = float4(TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.xy).a, TSMAA_Tex2D(TSMAAsamplerOldWeights, offset.zw).g, TSMAA_Tex2D(TSMAAsamplerOldWeights, texcoord).zx);
 	m = max(m, mo);
     bool horiz = max(m.x, m.z) > max(m.y, m.w);
-    float jitterminimum = TsmaaJitterStrength / 2.0;
-    float jitteroffset = 1.0 - jitterminimum;
-	float maxblending = jitterminimum + (0.25 * jitteroffset * (dot(m, float4(1.0, 1.0, 1.0, 1.0)) / 4.0)) + (0.75 * jitteroffset * TSMAAmax4(m.r, m.g, m.b, m.a));
+    bool earlyExit = dot(m, float4(1,1,1,1)) == 0.0;
+    float jitteroffset = 1.0 - TsmaaJitterStrength;
+	float maxblending = TsmaaJitterStrength + (0.5 * jitteroffset * TSMAAmax4(m.r, m.g, m.b, m.a)) + (0.5 * jitteroffset * (dot(m, float4(1,1,1,1)) / 4.0));
 	
 // pattern:
 //  e f g
@@ -1585,6 +1456,7 @@ float3 TSMAASofteningPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
 	float4 cdbablue = tex2Dgather(ReShade::BackBuffer, texcoord, 2);
 	a = float3(cdbared.w, cdbagreen.w, cdbablue.w);
 	float3 original = a;
+	if (earlyExit) return original;
 	a = ConditionalDecode(a);
 	b = ConditionalDecode(float3(cdbared.z, cdbagreen.z, cdbablue.z));
 	c = ConditionalDecode(float3(cdbared.x, cdbagreen.x, cdbablue.x));
@@ -1592,6 +1464,7 @@ float3 TSMAASofteningPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
 #else
 	a = TSMAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
 	float3 original = a;
+	if (earlyExit) return original;
 	a = ConditionalDecode(a);
 	b = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(1, 0)).rgb;
 	c = TSMAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(0, 1)).rgb;
@@ -1661,34 +1534,6 @@ technique TSMAA <
 		VertexShader = PostProcessVS;
 		PixelShader = TSMAAWriteEdgesPS;
 		RenderTarget = TSMAAedgesTexX2;
-		ClearRenderTargets = true;
-	}
-	pass PositiveJitter
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = TSMAAPositiveJitterPS;
-		RenderTarget = TSMAApositivejitterTex;
-		ClearRenderTargets = true;
-	}
-	pass NegativeJitter
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = TSMAANegativeJitterPS;
-		RenderTarget = TSMAAnegativejitterTex;
-		ClearRenderTargets = true;
-	}
-	pass PositiveJitterOdd
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = TSMAAPositiveJitterOddPS;
-		RenderTarget = TSMAApositivejitteroddTex;
-		ClearRenderTargets = true;
-	}
-	pass NegativeJitterOdd
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = TSMAANegativeJitterOddPS;
-		RenderTarget = TSMAAnegativejitteroddTex;
 		ClearRenderTargets = true;
 	}
 	pass EdgeDetection
