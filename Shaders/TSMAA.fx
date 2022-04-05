@@ -73,7 +73,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int TSMAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 0.13";
+	ui_label = "Version: 0.14";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"Temporal Subpixel Morphological Anti-Aliasing, a shader by lordbean\n"
 			"https://github.com/lordbean-git/TSMAA/\n"
@@ -249,6 +249,8 @@ static const float TSMAA_ERRORMARGIN_PRESET[4] = {7.0, 7.0, 7.0, -1.0};
 #define __TSMAA_BUFFER_INFO float4(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT, BUFFER_WIDTH, BUFFER_HEIGHT)
 #define __TSMAA_JITTER float2(BUFFER_RCP_WIDTH * TsmaaJitterStrength, BUFFER_RCP_HEIGHT * TsmaaJitterStrength)
 #define __TSMAA_JITTER_ODD float2(BUFFER_RCP_WIDTH * TsmaaJitterStrength, -(BUFFER_RCP_HEIGHT * TsmaaJitterStrength))
+#define __TSMAA_JITTER_X float2(BUFFER_RCP_WIDTH * TsmaaJitterStrength, 0.0)
+#define __TSMAA_JITTER_Y float2(0.0, BUFFER_RCP_HEIGHT * TsmaaJitterStrength)
 #define __TSMAA_SM_AREATEX_RANGE 16
 #define __TSMAA_SM_AREATEX_RANGE_DIAG 20
 #define __TSMAA_SM_AREATEX_TEXEL float2(0.00625, 0.001786) // 1/{160,560}
@@ -1171,8 +1173,12 @@ float4 TSMAAHybridEdgeDetectionPS(float4 position : SV_Position, float2 texcoord
 	float2 edgejitterP = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, __TSMAA_JITTER);
 	float2 edgejitterNO = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, -__TSMAA_JITTER_ODD);
 	float2 edgejitterPO = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, __TSMAA_JITTER_ODD);
+	float2 edgejitterXP = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, __TSMAA_JITTER_X);
+	float2 edgejitterXN = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, -__TSMAA_JITTER_X);
+	float2 edgejitterYP = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, __TSMAA_JITTER_Y);
+	float2 edgejitterYN = TSMAAJitterEdgeDetection(texcoord, offset, ReShade::BackBuffer, threshold, useluma, scale, -__TSMAA_JITTER_Y);
 	
-	edges = saturate(edges + edgejitterN + edgejitterP + edgejitterNO + edgejitterPO);
+	edges = saturate(edges + edgejitterN + edgejitterP + edgejitterNO + edgejitterPO + edgejitterXP + edgejitterXN + edgejitterYP + edgejitterYN);
 	
 	return float4(edges, TSMAA_Tex2D(TSMAAsamplerEdges, texcoord).ba);
 }
@@ -1442,8 +1448,8 @@ float3 TSMAASofteningPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD0, 
 	m = max(m, mo);
     bool horiz = max(m.x, m.z) > max(m.y, m.w);
     bool earlyExit = dot(m, float4(1,1,1,1)) == 0.0;
-    float jitteroffset = 1.0 - TsmaaJitterStrength;
-	float maxblending = TsmaaJitterStrength + (0.5 * jitteroffset * TSMAAmax4(m.r, m.g, m.b, m.a)) + (0.5 * jitteroffset * (dot(m, float4(1,1,1,1)) / 4.0));
+    float jitteroffset = 1.0 - min(TsmaaJitterStrength * 2.0, 0.5);
+	float maxblending = TsmaaJitterStrength + (0.8 * jitteroffset * TSMAAmax4(m.r, m.g, m.b, m.a)) + (0.2 * jitteroffset * (dot(m, float4(1,1,1,1)) / 4.0));
 	
 // pattern:
 //  e f g
