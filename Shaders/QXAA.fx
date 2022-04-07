@@ -15,7 +15,7 @@
  /**============================================================================
 
 
-                    NVIDIA QXAA 3.11 by TIMOTHY LOTTES
+                    NVIDIA FXAA 3.11 by TIMOTHY LOTTES
 
 
 ------------------------------------------------------------------------------
@@ -736,8 +736,8 @@ float4 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 technique QXAA <
 	ui_tooltip = "============================================================\n"
 				 "high-Quality approXimate Anti-Aliasing is a stand-alone\n"
-				 "version of the QXAA pass used in HQAA. It is more costly\n"
-				 "than normal QXAA but typically yields excellent results for\n"
+				 "version of the FXAA pass used in HQAA. It is more costly\n"
+				 "than normal FXAA but typically yields excellent results for\n"
 				 "its execution cost.\n"
 				 "============================================================";
 >
