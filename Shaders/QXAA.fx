@@ -54,7 +54,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int QXAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 1.0.2751";
+	ui_label = "Version: 1.0.277";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"high-Quality approXimate Anti-Aliasing, a shader by lordbean\n"
 			"https://github.com/lordbean-git/reshade-shaders/\n"
@@ -159,7 +159,7 @@ uniform int QxaaOptionsEOF <
 /*****************************************************************************************************************************************/
 
 #define __QXAA_MIN_STEP rcp(pow(2, BUFFER_COLOR_BIT_DEPTH))
-#define __QXAA_LUMA_REF float3(0.333333, 0.333334, 0.333333)
+#define __QXAA_LUMA_REF float3(0.2126, 0.7152, 0.0722)
 
 #define QXAA_Tex2D(tex, coord) tex2Dlod(tex, (coord).xyxy)
 #define QXAA_Tex2DOffset(tex, coord, offset) tex2Dlodoffset(tex, (coord).xyxy, offset)
