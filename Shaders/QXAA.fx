@@ -54,10 +54,10 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int QXAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 1.1.286";
+	ui_label = "Version: 1.2.286";
 	ui_text = "-------------------------------------------------------------------------\n"
-			"high-Quality approXimate Anti-Aliasing, a shader by lordbean\n"
-			"https://github.com/lordbean-git/reshade-shaders/\n"
+			"      high-Quality approXimate Anti-Aliasing, a shader by lordbean\n"
+			"             https://github.com/lordbean-git/reshade-shaders/\n"
 			"-------------------------------------------------------------------------\n\n"
 			"Currently Compiled Configuration:\n\n"
 			#if QXAA_OUTPUT_MODE == 1
@@ -138,6 +138,24 @@ uniform float QxaaStrength < __UNIFORM_SLIDER_FLOAT1
 	ui_label = "% Effect Strength";
 	ui_tooltip = "Although more costly, you can get better results\nby using multisampling and a lower strength.";
 > = 100;
+
+uniform float QxaaHysteresisStrength <
+	ui_spacing = 3;
+	ui_label = "Hysteresis Strength";
+	ui_tooltip = "Performs detail reconstruction to minimize the\n"
+				 "visual impact of artifacts that may be caused\n"
+				 "by QXAA.";
+	ui_type = "slider";
+	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
+> = 0.444444;
+
+uniform float QxaaHysteresisFudgeFactor <
+	ui_label = "Hysteresis Fudge Factor";
+	ui_tooltip = "Pixels that have changed less than this\n"
+				 "amount will be skipped.";
+	ui_type = "slider";
+	ui_min = 0.0; ui_max = 0.2; ui_step = 0.001;
+> = 0.05;
 
 uniform int QxaaOptionsEOF <
 	ui_type = "radio";
@@ -651,6 +669,18 @@ float4 intpow(float4 x, float y)
 
 #include "ReShade.fxh"
 
+texture QXAAHysteresisInfoTex
+#if __RESHADE__ < 50000
+< pooled = false; >
+#endif
+{
+	Width = BUFFER_WIDTH;
+	Height = BUFFER_HEIGHT;
+	Format = R8;
+};
+
+sampler OriginalLuma { Texture = QXAAHysteresisInfoTex; };
+
 /*****************************************************************************************************************************************/
 /*********************************************************** SHADER SETUP END ************************************************************/
 /*****************************************************************************************************************************************/
@@ -658,6 +688,12 @@ float4 intpow(float4 x, float y)
 /***************************************************************************************************************************************/
 /********************************************************** QXAA SHADER CODE START *****************************************************/
 /***************************************************************************************************************************************/
+
+float QXAAInitPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+{
+	float3 pixel = QXAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
+	return dot(ConditionalDecode(pixel), __QXAA_LUMA_REF);
+}
 
 float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
  {
@@ -755,6 +791,25 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	return QXAA_Tex2D(ReShade::BackBuffer, posM).rgb;
 }
 
+float3 QXAAHysteresisPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+{
+	float3 pixel = QXAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
+	float preluma = QXAA_Tex2D(OriginalLuma, texcoord).r;
+	
+	float3 result = ConditionalDecode(pixel.rgb);
+	bool altered = false;
+
+	float hysteresis = (dot(result, __QXAA_LUMA_REF) - preluma) * QxaaHysteresisStrength;
+	if (abs(hysteresis) > QxaaHysteresisFudgeFactor)
+	{
+		result = pow(abs(1.0 + hysteresis) * 2.0, log2(result));
+		altered = true;
+	}
+	
+	if (altered) return ConditionalEncode(result);
+	else return pixel.rgb;
+}
+
 /***************************************************************************************************************************************/
 /********************************************************** QXAA SHADER CODE END *******************************************************/
 /***************************************************************************************************************************************/
@@ -768,6 +823,13 @@ technique QXAA <
 				 "============================================================";
 >
 {
+	pass Init
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = QXAAInitPS;
+		RenderTarget = QXAAHysteresisInfoTex;
+		ClearRenderTargets = true;
+	}
 	pass QXAA
 	{
 		VertexShader = PostProcessVS;
@@ -794,4 +856,9 @@ technique QXAA <
 #endif //QXAA_MULTISAMPLING 3
 #endif //QXAA_MULTISAMPLING 2
 #endif //QXAA_MULTISAMPLING 1
+	pass Hysteresis
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = QXAAHysteresisPS;
+	}
 }
