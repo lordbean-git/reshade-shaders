@@ -54,7 +54,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int QXAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 1.3.2814";
+	ui_label = "Version: 1.4.2814";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"      high-Quality approXimate Anti-Aliasing, a shader by lordbean\n"
 			"             https://github.com/lordbean-git/reshade-shaders/\n"
@@ -147,7 +147,7 @@ uniform float QxaaHysteresisStrength <
 				 "by QXAA.";
 	ui_type = "slider";
 	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
-> = 0.125;
+> = 0.2;
 
 uniform float QxaaHysteresisFudgeFactor <
 	ui_label = "Hysteresis Fudge Factor";
@@ -673,7 +673,7 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
     float lumaN = dotweight(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 0,-1)).rgb, useluma, ref);
     float lumaW = dotweight(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb, useluma, ref);
     float4 crossdelta = abs(lumaM - float4(lumaS, lumaE, lumaN, lumaW));
-    bool4 crossedge = step(edgethreshold, crossdelta);
+	float2 weightsHV = float2((crossdelta.x + crossdelta.z) / 2.0, (crossdelta.y + crossdelta.w) / 2.0);
     
     // pattern
     // * z *
@@ -681,32 +681,36 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
     // * x *
     
 	//setup diagonal neighbor data
+	//diagonal reads are performed at the same distance from origin as cartesian reads
+	//solve using pythagorean theorem yields 1/2 sqrt(2) to match horz/vert distance
+	//this bakes in a weighting bias to horz/vert giving diag code priority only when
+	//it's the only viable option
     float lumaNW = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (-__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2)).rgb, useluma, ref);
     float lumaSE = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2)).rgb, useluma, ref);
     float lumaNE = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2 * float2(1, -1))).rgb, useluma, ref);
     float lumaSW = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2 * float2(-1, 1))).rgb, useluma, ref);
     float4 diagdelta = abs(lumaM - float4(lumaNW, lumaSE, lumaNE, lumaSW));
-    bool4 diagedge = step(edgethreshold, diagdelta);
+	float2 weightsDI = float2((diagdelta.w + diagdelta.z) / 2.0, (diagdelta.x + diagdelta.y) / 2.0);
     
     // pattern
     // x * z
     // * * *
     // w * y
     
-	//abort if nothing passes the threshold
-    float4 crosscheck = max(crossdelta, diagdelta);
-    float range = QXAAmax4(crosscheck.x, crosscheck.y, crosscheck.z, crosscheck.w);
-	if (range < edgethreshold) return original;
-	
 	//detect edge pattern
-	bool diagNW = (crossedge.z * crossedge.w) && (crossedge.x + crossedge.y == 0.0);
-	bool diagSE = (crossedge.y * crossedge.x) && (crossedge.z + crossedge.w == 0.0);
-	bool diagNE = (crossedge.z * crossedge.y) && (crossedge.x + crossedge.w == 0.0);
-	bool diagSW = (crossedge.x * crossedge.w) && (crossedge.z + crossedge.y == 0.0);
-	bool diagSpan = lxor(diagedge.x * diagedge.y, diagedge.z * diagedge.w) || diagNW || diagSE || diagNE || diagSW;
-	bool inverseDiag = diagSpan && ((diagedge.w * diagedge.z) || diagNW || diagSE);
-	bool horzSpan = crossdelta.z + crossdelta.x > crossdelta.w + crossdelta.y;
+	bool diagSpan = max(weightsDI.x, weightsDI.y) > max(weightsHV.x, weightsHV.y);
+	bool inverseDiag = diagSpan && (weightsDI.y > weightsDI.x);
+	bool horzSpan = weightsHV.x > weightsHV.y;
 	
+	//abort if pattern reads below edge threshold
+	//don't use merged pattern as range - screws up math done later
+    float exitcheck = (diagSpan && inverseDiag) ? weightsDI.y : (diagSpan ? weightsDI.x : (horzSpan ? weightsHV.x : weightsHV.y));
+	if (exitcheck < edgethreshold) return original;
+	
+	// get highest single-point delta
+	float4 crosscheck = max(crossdelta, diagdelta);
+    float range = QXAAmax4(crosscheck.x, crosscheck.y, crosscheck.z, crosscheck.w);
+    
 	//setup scanning gradient
 	float2 lumaNP = float2(lumaN, lumaS);
 	QXAAMovc(!horzSpan.xx, lumaNP, float2(lumaW, lumaE));
@@ -766,13 +770,14 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
     }
 	
 	//determine resulting distance from origin
+	//pythagorean theorem used to generate diagonal N/P distances [hypotenuse = sqrt(pow(x,2) + pow(y,2))]
 	float2 dstNP = float2(texcoord.y - posN.y, posP.y - texcoord.y);
 	QXAAMovc(bool(horzSpan).xx, dstNP, float2(texcoord.x - posN.x, posP.x - texcoord.x));
 	QXAAMovc(bool(diagSpan).xx, dstNP, float2(sqrt(pow(abs(texcoord.y - posN.y), 2.0) + pow(abs(texcoord.x - posN.x), 2.0)), sqrt(pow(abs(posP.y - texcoord.y), 2.0) + pow(abs(posP.x - texcoord.x), 2.0))));
 	
 	//perform noise control calculations
     float endluma = (dstNP.x < dstNP.y) ? lumaEndN : lumaEndP;
-    float blendclamp = saturate(1.0 - pow(abs(endluma - lumaM), float(BUFFER_COLOR_BIT_DEPTH) / 4.0));
+    float blendclamp = saturate(1.0 - pow(abs(endluma - lumaM), float(BUFFER_COLOR_BIT_DEPTH)));
 	
 	//calculate offset from origin
     float pixelOffset = abs(mad(-(1.0 / (dstNP.y + dstNP.x)), min(dstNP.x, dstNP.y), 0.5)) * clamp(QxaaStrength, 0.0, blendclamp);
