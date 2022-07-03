@@ -54,7 +54,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int QXAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 1.4.2814";
+	ui_label = "Version: 1.5.2814";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"      high-Quality approXimate Anti-Aliasing, a shader by lordbean\n"
 			"             https://github.com/lordbean-git/reshade-shaders/\n"
@@ -115,29 +115,41 @@ uniform int QxaaAboutEOF <
 	ui_text = "\n--------------------------------------------------------------------------------";
 >;
 
-uniform float QxaaThreshold < __UNIFORM_SLIDER_FLOAT1
+uniform float QxaaThreshold <
+	ui_type = "slider";
 	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
 	ui_label = "Edge Detection Threshold";
 	ui_tooltip = "Local contrast (luma difference) required to be considered an edge.\nQXAA does not do dynamic thresholding, but it\nhandles extreme settings very well.";
 > = 0.01;
 
-uniform uint QxaaScanIterations < __UNIFORM_SLIDER_INT1
+uniform uint QxaaScanIterations <
+	ui_type = "slider";
 	ui_min = 1; ui_max = 200; ui_step = 1;
 	ui_label = "Gradient Scan Iterations";
 	ui_tooltip = "Edge gradient search iterations.\nNote that this is per-pass, not total.";
-> = 40;
+> = 64;
 
-uniform float QxaaTexelSize < __UNIFORM_SLIDER_FLOAT1
+uniform float QxaaTexelSize <
+	ui_type = "slider";
 	ui_min = 0.1; ui_max = 2.0; ui_step = 0.001;
 	ui_label = "Edge Gradient Texel Size";
 	ui_tooltip = "Determines how far along an edge QXAA will move\nfrom one scan iteration to the next.\n\nLower = slower, more accurate\nHigher = faster, more artifacts";
 > = 0.5;
 
-uniform float QxaaStrength < __UNIFORM_SLIDER_FLOAT1
+uniform float QxaaNoiseControlStrength <
+	ui_type = "slider";
 	ui_min = 0; ui_max = 100; ui_step = 1;
-	ui_label = "% Effect Strength";
+	ui_label = "Noise Control Strength";
+	ui_tooltip = "Determines how strongly QXAA will clamp its output\n"
+				 "when the resulting blend will have a high luma delta.";
+> = 40;
+
+uniform float QxaaStrength <
+	ui_type = "slider";
+	ui_min = 0; ui_max = 100; ui_step = 1;
+	ui_label = "Effect Strength";
 	ui_tooltip = "Although more costly, you can get better results\nby using multisampling and a lower strength.";
-> = 100;
+> = 80;
 
 uniform float QxaaHysteresisStrength <
 	ui_spacing = 3;
@@ -147,7 +159,7 @@ uniform float QxaaHysteresisStrength <
 				 "by QXAA.";
 	ui_type = "slider";
 	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
-> = 0.2;
+> = 0.333333;
 
 uniform float QxaaHysteresisFudgeFactor <
 	ui_label = "Hysteresis Fudge Factor";
@@ -173,6 +185,9 @@ uniform int QxaaOptionsEOF <
 
 #define __QXAA_MIN_STEP rcp(pow(2, BUFFER_COLOR_BIT_DEPTH))
 #define __QXAA_LUMA_REF float3(0.2126, 0.7152, 0.0722)
+#define __QXAA_GREEN_LUMA float3(1./5., 7./10., 1./10.)
+#define __QXAA_RED_LUMA float3(5./8., 1./4., 1./8.)
+#define __QXAA_BLUE_LUMA float3(1./8., 3./8., 1./2.)
 #define __QXAA_CONST_HALFROOT2 0.70710678118654752440084436210485
 #define __QXAA_SM_BUFFERINFO float4(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT, BUFFER_WIDTH, BUFFER_HEIGHT)
 
@@ -566,28 +581,6 @@ float4 ConditionalDecode(float4 x)
 
 ////////////////////////////////////////////////////// HELPER FUNCTIONS ////////////////////////////////////////////////////////////////
 
-float dotsat(float3 x)
-{
-	// trunc(xl) only = 1 when x = float3(1,1,1)
-	// float3(1,1,1) produces 0/0 in the original calculation
-	// this should change it to 0/1 to avoid the possible NaN out
-	float xl = dot(x, __QXAA_LUMA_REF);
-	return ((QXAAdotmax(x) - QXAAdotmin(x)) / (1.0 - (2.0 * xl - 1.0) + trunc(xl)));
-}
-float dotsat(float4 x)
-{
-	return dotsat(x.rgb);
-}
-
-float dotweight(float3 pixel, bool useluma, float3 weights)
-{
-	return useluma ? dot(pixel, weights) : dotsat(pixel);
-}
-float dotweight(float4 pixel, bool useluma, float3 weights)
-{
-	return useluma ? dot(pixel.rgb, weights) : dotsat(pixel.rgb);
-}
-
 void QXAAMovc(bool2 cond, inout float2 variable, float2 value)
 {
     [flatten] if (cond.x) variable.x = value.x;
@@ -635,7 +628,7 @@ texture QXAAHysteresisInfoTex
 {
 	Width = BUFFER_WIDTH;
 	Height = BUFFER_HEIGHT;
-	Format = R8;
+	Format = R32F;
 };
 
 sampler OriginalLuma { Texture = QXAAHysteresisInfoTex; };
@@ -657,21 +650,22 @@ float QXAAInitPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Tar
 float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
  {
     float3 original = QXAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
-    float3 ref = __QXAA_LUMA_REF;
 	
 	//determine detection method
 	float edgethreshold = QxaaThreshold;
 	float3 middle = ConditionalDecode(original);
+	float maxchannel = QXAAmax3(middle.r, middle.g, middle.b);
+    float3 ref;
+	if (middle.g == maxchannel) ref = __QXAA_GREEN_LUMA;
+	else if (middle.r == maxchannel) ref = __QXAA_RED_LUMA;
+	else ref = __QXAA_BLUE_LUMA;
 	float lumaM = dot(middle, ref);
-	float satM = dotsat(middle);
-	bool useluma = lumaM > satM;
-	if (!useluma) lumaM = satM;
 	
 	//setup cartesian neighbor data
-    float lumaS = dotweight(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 0, 1)).rgb, useluma, ref);
-    float lumaE = dotweight(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 1, 0)).rgb, useluma, ref);
-    float lumaN = dotweight(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 0,-1)).rgb, useluma, ref);
-    float lumaW = dotweight(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb, useluma, ref);
+    float lumaS = dot(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 0, 1)).rgb, ref);
+    float lumaE = dot(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 1, 0)).rgb, ref);
+    float lumaN = dot(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 0,-1)).rgb, ref);
+    float lumaW = dot(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb, ref);
     float4 crossdelta = abs(lumaM - float4(lumaS, lumaE, lumaN, lumaW));
 	float2 weightsHV = float2((crossdelta.x + crossdelta.z) / 2.0, (crossdelta.y + crossdelta.w) / 2.0);
     
@@ -685,10 +679,10 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	//solve using pythagorean theorem yields 1/2 sqrt(2) to match horz/vert distance
 	//this bakes in a weighting bias to horz/vert giving diag code priority only when
 	//it's the only viable option
-    float lumaNW = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (-__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2)).rgb, useluma, ref);
-    float lumaSE = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2)).rgb, useluma, ref);
-    float lumaNE = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2 * float2(1, -1))).rgb, useluma, ref);
-    float lumaSW = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2 * float2(-1, 1))).rgb, useluma, ref);
+    float lumaNW = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (-__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2)).rgb, ref);
+    float lumaSE = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2)).rgb, ref);
+    float lumaNE = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2 * float2(1, -1))).rgb, ref);
+    float lumaSW = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2 * float2(-1, 1))).rgb, ref);
     float4 diagdelta = abs(lumaM - float4(lumaNW, lumaSE, lumaNE, lumaSW));
 	float2 weightsDI = float2((diagdelta.w + diagdelta.z) / 2.0, (diagdelta.x + diagdelta.y) / 2.0);
     
@@ -698,19 +692,17 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
     // w * y
     
 	//detect edge pattern
-	bool diagSpan = max(weightsDI.x, weightsDI.y) > max(weightsHV.x, weightsHV.y);
+	bool diagSpan = max(weightsDI.x, weightsDI.y) * float(bool(lxor(weightsDI.x, weightsDI.y))) > max(weightsHV.x, weightsHV.y);
 	bool inverseDiag = diagSpan && (weightsDI.y > weightsDI.x);
 	bool horzSpan = weightsHV.x > weightsHV.y;
-	
-	//abort if pattern reads below edge threshold
-	//don't use merged pattern as range - screws up math done later
-    float exitcheck = (diagSpan && inverseDiag) ? weightsDI.y : (diagSpan ? weightsDI.x : (horzSpan ? weightsHV.x : weightsHV.y));
-	if (exitcheck < edgethreshold) return original;
 	
 	// get highest single-point delta
 	float4 crosscheck = max(crossdelta, diagdelta);
     float range = QXAAmax4(crosscheck.x, crosscheck.y, crosscheck.z, crosscheck.w);
     
+    // abort if not above edge threshold
+	if (range < edgethreshold) discard;
+	
 	//setup scanning gradient
 	float2 lumaNP = float2(lumaN, lumaS);
 	QXAAMovc(!horzSpan.xx, lumaNP, float2(lumaW, lumaE));
@@ -738,8 +730,8 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	//init scan tracking and do first iteration
     float2 posN = posB - offNP;
     float2 posP = posB + offNP;
-    float lumaEndN = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, posN).rgb, useluma, ref);
-    float lumaEndP = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, posP).rgb, useluma, ref);
+    float lumaEndN = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, posN).rgb, ref);
+    float lumaEndP = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, posP).rgb, ref);
 	lumaNN *= 0.5;
     lumaEndN -= lumaNN;
     lumaEndP -= lumaNN;
@@ -755,14 +747,14 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 		if (!doneN)
 		{
 			posN -= offNP;
-			lumaEndN = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, posN).rgb, useluma, ref);
+			lumaEndN = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, posN).rgb, ref);
 			lumaEndN -= lumaNN;
 			doneN = abs(lumaEndN) >= gradientScaled;
 		}
 		if (!doneP)
 		{
 			posP += offNP;
-			lumaEndP = dotweight(QXAA_DecodeTex2D(ReShade::BackBuffer, posP).rgb, useluma, ref);
+			lumaEndP = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, posP).rgb, ref);
 			lumaEndP -= lumaNN;
 			doneP = abs(lumaEndP) >= gradientScaled;
 		}
@@ -777,10 +769,10 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	
 	//perform noise control calculations
     float endluma = (dstNP.x < dstNP.y) ? lumaEndN : lumaEndP;
-    float blendclamp = saturate(1.0 - pow(abs(endluma - lumaM), float(BUFFER_COLOR_BIT_DEPTH)));
+    float blendclamp = saturate(1.0 - abs(endluma - lumaM) * (QxaaNoiseControlStrength / 100.0));
 	
 	//calculate offset from origin
-    float pixelOffset = abs(mad(-(1.0 / (dstNP.y + dstNP.x)), min(dstNP.x, dstNP.y), 0.5)) * clamp(QxaaStrength, 0.0, blendclamp);
+    float pixelOffset = abs(mad(-(1.0 / (dstNP.y + dstNP.x)), min(dstNP.x, dstNP.y), 0.5)) * clamp(QxaaStrength / 100.0, 0.0, blendclamp);
 	
 	//check span result, calculate offset weight if bad
     float subpixOut = 1.0;
