@@ -22,6 +22,34 @@
 COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 ------------------------------------------------------------------------------*/
 
+/* AMD CONTRAST ADAPTIVE SHARPENING
+// =======
+// Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+// -------
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
+// files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
+// modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+// -------
+// The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+// Software.
+// --------*/
+
+ // All original code not attributed to the above authors is copyright (c) Derek Brush aka "lordbean" (derekbrush@gmail.com)
+
+/** Permission is hereby granted, free of charge, to any person obtaining a copy
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+ * of the Software, and to permit persons to whom the Software is furnished to
+ * do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software. As clarification, there
+ * is no requirement that the copyright notice and permission be included in
+ * binary distributions of the Software.
+ **/
+ 
  /*------------------------------------------------------------------------------
  * THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -54,7 +82,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int QXAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 1.5.2814";
+	ui_label = "Version: 1.6";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"      high-Quality approXimate Anti-Aliasing, a shader by lordbean\n"
 			"             https://github.com/lordbean-git/reshade-shaders/\n"
@@ -80,6 +108,10 @@ uniform int QXAAintroduction <
 			#endif //QXAA_MULTISAMPLING
 			
 			"\nRemarks:\n"
+			
+			"\nQXAA sharpening/tonemap processing has no performance penalty when\n"
+			"disabled. It shares the same pass used to run Hysteresis correction and\n"
+			"is compiled out of the shader when ReShade is in Performance Mode.\n"
 			
 			"\nMultisampling can be used to increase correction strength\n"
 			"when encountering edges with more than one color gradient or\n"
@@ -116,40 +148,41 @@ uniform int QxaaAboutEOF <
 >;
 
 uniform float QxaaThreshold <
+	ui_spacing = 3;
 	ui_type = "slider";
 	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
 	ui_label = "Edge Detection Threshold";
 	ui_tooltip = "Local contrast (luma difference) required to be considered an edge.\nQXAA does not do dynamic thresholding, but it\nhandles extreme settings very well.";
-> = 0.01;
+	ui_category = "Anti-Aliasing";
+	ui_category_closed = true;
+> = 0.02;
 
 uniform uint QxaaScanIterations <
 	ui_type = "slider";
 	ui_min = 1; ui_max = 200; ui_step = 1;
 	ui_label = "Gradient Scan Iterations";
 	ui_tooltip = "Edge gradient search iterations.\nNote that this is per-pass, not total.";
-> = 64;
+	ui_category = "Anti-Aliasing";
+	ui_category_closed = true;
+> = 24;
 
 uniform float QxaaTexelSize <
 	ui_type = "slider";
 	ui_min = 0.1; ui_max = 2.0; ui_step = 0.001;
 	ui_label = "Edge Gradient Texel Size";
 	ui_tooltip = "Determines how far along an edge QXAA will move\nfrom one scan iteration to the next.\n\nLower = slower, more accurate\nHigher = faster, more artifacts";
-> = 0.5;
-
-uniform float QxaaNoiseControlStrength <
-	ui_type = "slider";
-	ui_min = 0; ui_max = 100; ui_step = 1;
-	ui_label = "Noise Control Strength";
-	ui_tooltip = "Determines how strongly QXAA will clamp its output\n"
-				 "when the resulting blend will have a high luma delta.";
-> = 40;
+	ui_category = "Anti-Aliasing";
+	ui_category_closed = true;
+> = 0.666667;
 
 uniform float QxaaStrength <
 	ui_type = "slider";
 	ui_min = 0; ui_max = 100; ui_step = 1;
 	ui_label = "Effect Strength";
 	ui_tooltip = "Although more costly, you can get better results\nby using multisampling and a lower strength.";
-> = 80;
+	ui_category = "Anti-Aliasing";
+	ui_category_closed = true;
+> = 90;
 
 uniform float QxaaHysteresisStrength <
 	ui_spacing = 3;
@@ -159,7 +192,9 @@ uniform float QxaaHysteresisStrength <
 				 "by QXAA.";
 	ui_type = "slider";
 	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
-> = 0.333333;
+	ui_category = "Anti-Aliasing";
+	ui_category_closed = true;
+> = 0.25;
 
 uniform float QxaaHysteresisFudgeFactor <
 	ui_label = "Hysteresis Fudge Factor";
@@ -167,7 +202,117 @@ uniform float QxaaHysteresisFudgeFactor <
 				 "amount will be skipped.";
 	ui_type = "slider";
 	ui_min = 0.0; ui_max = 0.2; ui_step = 0.001;
-> = 0.02;
+	ui_category = "Anti-Aliasing";
+	ui_category_closed = true;
+> = 0.04;
+
+uniform float QxaaNoiseControlStrength <
+	ui_type = "slider";
+	ui_min = 0; ui_max = 100; ui_step = 1;
+	ui_label = "Noise Control Strength\n\n";
+	ui_tooltip = "Determines how strongly QXAA will clamp its output\n"
+				 "when the resulting blend will have a high luma delta.";
+	ui_category = "Anti-Aliasing";
+	ui_category_closed = true;
+> = 33;
+
+uniform bool QxaaEnableSharpening <
+	ui_spacing = 3;
+	ui_label = "Enable Sharpening";
+	ui_tooltip = "Performs fast CAS sharpening when enabled.";
+	ui_category = "Sharpening";
+	ui_category_closed = true;
+> = false;
+
+uniform float QxaaSharpenerStrength <
+	ui_spacing = 3;
+	ui_type = "slider";
+	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
+	ui_label = "Strength";
+	ui_tooltip = "Amount of sharpening to apply. 1.0 is default.";
+	ui_category = "Sharpening";
+	ui_category_closed = true;
+> = 1.0;
+
+uniform float QxaaSharpenerAdaptation <
+	ui_type = "slider";
+	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
+	ui_label = "Contrast Adaptation\n\n";
+	ui_tooltip = "Adjusts the amount of high-contrast sharpening\n"
+				 "applied. 0.0 is default, above 0.5 is not recommended.";
+	ui_category = "Sharpening";
+	ui_category_closed = true;
+> = 0.0;
+
+uniform bool QxaaEnableTonemap <
+	ui_label = "Enable Tonemap Processing";
+	ui_spacing = 3;
+	ui_tooltip = "Enables processing of this category. Individual\n"
+				 "effects will still be compiled out when they\n"
+				 "do not result in a change to the output.";
+	ui_category = "Tonemap";
+	ui_category_closed = true;
+> = false;
+				 
+uniform uint QxaaTonemapping <
+	ui_spacing = 3;
+	ui_type = "combo";
+	ui_label = "Tonemapping Function";
+	ui_items = "None\0Reinhard Extended\0Reinhard Luminance\0Reinhard-Jodie\0Uncharted 2\0ACES approx\0Logarithmic Fake HDR\0Dynamic Range Compression\0";
+	ui_category = "Tonemap";
+	ui_category_closed = true;
+> = 0;
+
+uniform float QxaaTonemappingParameter <
+	ui_type = "slider";
+	ui_label = "Tonemapping Function Parameter";
+	ui_tooltip = "Input parameter for tonemapping functions that use one.\n"
+				 "Logarithmic functions will generate artifacts if the\n"
+				 "value exceeds euler's number (~2.718282).";
+	ui_min = 0.0; ui_max = 2.718; ui_step = 0.001;
+	ui_category = "Tonemap";
+	ui_category_closed = true;
+> = 1.0;
+
+uniform float QxaaGainStrength <
+	ui_type = "slider";
+	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
+	ui_spacing = 3;
+	ui_label = "Brightness Gain";
+	ui_category = "Tonemap";
+	ui_category_closed = true;
+> = 0.0;
+
+uniform bool QxaaGainLowLumaCorrection <
+	ui_label = "Contrast Washout Correction";
+	ui_tooltip = "Calculates new expected black point after gain\n"
+				 "and adjusts saturation levels to reduce perceived\n"
+				 "contrast washout (or 'airy' look).";
+	ui_category = "Tonemap";
+	ui_category_closed = true;
+> = false;
+
+uniform float QxaaBlueLightFilter <
+	ui_spacing = 3;
+	ui_type = "slider";
+	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
+	ui_label = "Blue Light Filter";
+	ui_tooltip = "Reduces strength of blue light for eye comfort.\n";
+	ui_category = "Tonemap";
+	ui_category_closed = true;
+> = 0.0;
+
+uniform float QxaaSaturationStrength <
+	ui_spacing = 3;
+	ui_type = "slider";
+	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
+	ui_label = "Saturation\n\n";
+	ui_tooltip = "Increases or decreases saturation of the scene.\n"
+				 "Higher makes colors appear more vibrant, lower\n"
+				 "washes them out. 0.5 is neutral.";
+	ui_category = "Tonemap";
+	ui_category_closed = true;
+> = 0.5;
 
 uniform int QxaaOptionsEOF <
 	ui_type = "radio";
@@ -183,13 +328,13 @@ uniform int QxaaOptionsEOF <
 /******************************************************** SYNTAX SETUP START *************************************************************/
 /*****************************************************************************************************************************************/
 
-#define __QXAA_MIN_STEP rcp(pow(2, BUFFER_COLOR_BIT_DEPTH))
+#define __QXAA_MIN_STEP rcp(pow(2., BUFFER_COLOR_BIT_DEPTH))
 #define __QXAA_LUMA_REF float3(0.2126, 0.7152, 0.0722)
 #define __QXAA_GREEN_LUMA float3(1./5., 7./10., 1./10.)
 #define __QXAA_RED_LUMA float3(5./8., 1./4., 1./8.)
 #define __QXAA_BLUE_LUMA float3(1./8., 3./8., 1./2.)
-#define __QXAA_CONST_HALFROOT2 0.70710678118654752440084436210485
-#define __QXAA_SM_BUFFERINFO float4(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT, BUFFER_WIDTH, BUFFER_HEIGHT)
+#define __QXAA_CONST_E 2.7182818284590452353602874713527
+#define __QXAA_CONST_HALFROOT2 (sqrt(2.)/2.)
 
 #define QXAA_Tex2D(tex, coord) tex2Dlod(tex, (coord).xyxy)
 #define QXAA_Tex2DOffset(tex, coord, offset) tex2Dlodoffset(tex, (coord).xyxy, offset)
@@ -611,6 +756,154 @@ float4 lxor(float4 x, float4 y)
 	return float4(lxor(x.xy, y.xy), lxor(x.zw, y.zw));
 }
 
+/*
+Ey = 0.299R+0.587G+0.114B
+Ecr = 0.713(R - Ey) = 0.500R-0.419G-0.081B
+Ecb = 0.564(B - Ey) = -0.169R-0.331G+0.500B
+
+where Ey, R, G and B are in the range [0,1] and Ecr and Ecb are in the range [-0.5,0.5]
+*/
+float3 RGBtoYUV(float3 input)
+{
+	float3 argb = saturate(input); // value must be between [0,1]
+	float3 yuv;
+	
+	yuv.x = saturate((0.299 * argb.r) + (0.587 * argb.g) + (0.114 * argb.b));
+	yuv.y = clamp(0.713 * (argb.r - yuv.x), -0.5, 0.5);
+	yuv.z = clamp(0.564 * (argb.b - yuv.x), -0.5, 0.5);
+	
+	return yuv;
+}
+float4 RGBtoYUV(float4 input)
+{
+	return float4(RGBtoYUV(input.rgb), input.a);
+}
+
+/*
+/* reverse transfer accomplished by solving original equations for R and B and then
+/* using those channels to solve the luma equation for G
+*/
+float3 YUVtoRGB(float3 yuv)
+{
+	yuv.x = saturate(yuv.x);
+	yuv.yz = clamp(yuv.yz, -0.5, 0.5);
+	
+	float3 argb;
+	
+	argb.r = (1.402525 * yuv.y) + yuv.x;
+	argb.b = (1.77305 * yuv.z) + yuv.x;
+	argb.g = (1.703578 * yuv.x) - (0.50937 * argb.r) - (0.194208 * argb.b);
+	
+	return argb;
+}
+float4 YUVtoRGB(float4 yuv)
+{
+	return float4(YUVtoRGB(yuv.xyz), yuv.a);
+}
+
+float dotsat(float3 x)
+{
+	// trunc(xl) only = 1 when x = float3(1,1,1)
+	// float3(1,1,1) produces 0/0 in the original calculation
+	// this should change it to 0/1 to avoid the possible NaN out
+	float xl = dot(x, __QXAA_LUMA_REF);
+	return ((QXAAdotmax(x) - QXAAdotmin(x)) / (1.0 - (2.0 * xl - 1.0) + trunc(xl)));
+}
+float dotsat(float4 x)
+{
+	return dotsat(x.rgb);
+}
+
+float3 AdjustSaturation(float3 input, float requestedadjustment)
+{
+	// change to YCrCb (component) color space
+	// access: x=Y, y=Cr, z=Cb
+	float3 yuv = RGBtoYUV(input);
+	
+	// convert absolute saturation to adjustment delta
+	float adjustment = 2.0 * (saturate(requestedadjustment) - 0.5);
+	
+	// for a positive adjustment, determine ceiling and clamp if necessary
+	if (adjustment > 0.0)
+	{
+		float maxboost = 1.0 / (max(abs(yuv.y), abs(yuv.z)) / 0.5);
+		if (adjustment > maxboost) adjustment = maxboost;
+	}
+	
+	// compute delta Cr,Cb
+	yuv.y = yuv.y > 0.0 ? (yuv.y + (adjustment * yuv.y)) : (yuv.y - (adjustment * abs(yuv.y)));
+	yuv.z = yuv.z > 0.0 ? (yuv.z + (adjustment * yuv.z)) : (yuv.z - (adjustment * abs(yuv.z)));
+	
+	// change back to ARGB color space
+	return YUVtoRGB(yuv);
+}
+
+float3 tonemap_adjustluma(float3 x, float xl_out)
+{
+	float xl = dot(x, __QXAA_LUMA_REF);
+	return x * (xl_out / xl);
+}
+float3 reinhard_jodie(float3 x)
+{
+	float xl = dot(x, __QXAA_LUMA_REF);
+	float3 xv = x / (1.0 + x);
+	return lerp(x / (1.0 + xl), xv, xv);
+}
+float3 extended_reinhard(float3 x)
+{
+	float whitepoint = QxaaTonemappingParameter;
+	float3 numerator = x * (1.0 + (x / (whitepoint * whitepoint)));
+	return numerator / (1.0 + x);
+}
+float3 extended_reinhard_luma(float3 x)
+{
+	float whitepoint = QxaaTonemappingParameter;
+	float xl = dot(x, __QXAA_LUMA_REF);
+	float numerator = xl * (1.0 + (xl / (whitepoint * whitepoint)));
+	float xl_shift = numerator / (1.0 + xl);
+	return tonemap_adjustluma(x, xl_shift);
+}
+float3 uncharted2_partial(float3 x)
+{
+	float A = 0.15;
+	float B = 0.5;
+	float C = 0.1;
+	float D = 0.2;
+	float E = 0.02;
+	float F = 0.3;
+	
+	return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+}
+float3 uncharted2_filmic(float3 x)
+{
+	float exposure_bias = 2.0;
+	float3 curr = uncharted2_partial(x * exposure_bias);
+	float3 whitescale = rcp(uncharted2_partial(float(11.2).xxx));
+	return curr * whitescale;
+}
+float3 aces_approx(float3 x)
+{
+	float3 xout = x * 0.6;
+	float A = 2.51;
+	float B = 0.03;
+	float C = 2.43;
+	float D = 0.59;
+	float E = 0.14;
+	
+	return saturate((xout*(A*xout+B))/(xout*(C*xout+D)+E));
+}
+float3 logarithmic_fake_hdr(float3 x)
+{
+	return saturate(pow(abs(__QXAA_CONST_E + (QxaaTonemappingParameter * (0.5 - log2(1.0 + dot(x, __QXAA_LUMA_REF))))), log(clamp(x, __QXAA_MIN_STEP, 1.0))));
+}
+float3 logarithmic_range_compression(float3 x)
+{
+	float luma = dot(x, __QXAA_LUMA_REF);
+	float offset = QxaaTonemappingParameter * (0.5 - luma);
+	float3 result = pow(abs(__QXAA_CONST_E - offset), log(clamp(x, __QXAA_MIN_STEP, 1.0)));
+	return saturate(result);
+}
+
 /***************************************************************************************************************************************/
 /******************************************************** SUPPORT CODE END *************************************************************/
 /***************************************************************************************************************************************/
@@ -662,10 +955,10 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	float lumaM = dot(middle, ref);
 	
 	//setup cartesian neighbor data
-    float lumaS = dot(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 0, 1)).rgb, ref);
-    float lumaE = dot(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 1, 0)).rgb, ref);
-    float lumaN = dot(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2( 0,-1)).rgb, ref);
-    float lumaW = dot(QXAA_DecodeTex2DOffset(ReShade::BackBuffer, texcoord, int2(-1, 0)).rgb, ref);
+    float lumaS = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * float2( 0., 1.)).rgb, ref);
+    float lumaE = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * float2( 1., 0.)).rgb, ref);
+    float lumaN = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * float2( 0.,-1.)).rgb, ref);
+    float lumaW = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * float2(-1., 0.)).rgb, ref);
     float4 crossdelta = abs(lumaM - float4(lumaS, lumaE, lumaN, lumaW));
 	float2 weightsHV = float2((crossdelta.x + crossdelta.z) / 2.0, (crossdelta.y + crossdelta.w) / 2.0);
     
@@ -679,10 +972,10 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	//solve using pythagorean theorem yields 1/2 sqrt(2) to match horz/vert distance
 	//this bakes in a weighting bias to horz/vert giving diag code priority only when
 	//it's the only viable option
-    float lumaNW = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (-__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2)).rgb, ref);
-    float lumaSE = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2)).rgb, ref);
-    float lumaNE = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2 * float2(1, -1))).rgb, ref);
-    float lumaSW = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (__QXAA_SM_BUFFERINFO.xy * __QXAA_CONST_HALFROOT2 * float2(-1, 1))).rgb, ref);
+    float lumaNW = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (-float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * __QXAA_CONST_HALFROOT2)).rgb, ref);
+    float lumaSE = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * __QXAA_CONST_HALFROOT2)).rgb, ref);
+    float lumaNE = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * __QXAA_CONST_HALFROOT2 * float2(1., -1.))).rgb, ref);
+    float lumaSW = dot(QXAA_DecodeTex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * __QXAA_CONST_HALFROOT2 * float2(-1., 1.))).rgb, ref);
     float4 diagdelta = abs(lumaM - float4(lumaNW, lumaSE, lumaNE, lumaSW));
 	float2 weightsDI = float2((diagdelta.w + diagdelta.z) / 2.0, (diagdelta.x + diagdelta.y) / 2.0);
     
@@ -792,23 +1085,119 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	return QXAA_Tex2D(ReShade::BackBuffer, posM).rgb;
 }
 
+// ordering = sharpen > hysteresis > tonemap > brightness > blue filter > saturation
 float3 QXAAHysteresisPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float3 pixel = QXAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
+	float3 original = pixel;
 	float preluma = QXAA_Tex2D(OriginalLuma, texcoord).r;
-	
-	float3 result = ConditionalDecode(pixel.rgb);
 	bool altered = false;
-
-	float hysteresis = (dot(result, __QXAA_LUMA_REF) - preluma) * QxaaHysteresisStrength;
-	if (abs(hysteresis) > QxaaHysteresisFudgeFactor)
+	
+	if (!QxaaEnableSharpening) pixel = ConditionalDecode(pixel);
+	if (QxaaEnableSharpening)
 	{
-		result = pow(abs(1.0 + hysteresis) * 2.0, log2(result));
+		float3 casdot = pixel;
+		float3 a = QXAA_Tex2D(ReShade::BackBuffer, texcoord + (-float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * __QXAA_CONST_HALFROOT2)).rgb;
+		float3 c = QXAA_Tex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * __QXAA_CONST_HALFROOT2 * float2(1., -1.))).rgb;
+		float3 g = QXAA_Tex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * __QXAA_CONST_HALFROOT2 * float2(-1., 1.))).rgb;
+		float3 i = QXAA_Tex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * __QXAA_CONST_HALFROOT2)).rgb;
+		float3 b = QXAA_Tex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * float2(0., -1.))).rgb;
+		float3 d = QXAA_Tex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * float2(-1., 0.))).rgb;
+		float3 f = QXAA_Tex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * float2(1., 0.))).rgb;
+		float3 h = QXAA_Tex2D(ReShade::BackBuffer, texcoord + (float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT) * float2(0., 1.))).rgb;
+	
+		float3 mnRGB = QXAAmin5(d, casdot, f, b, h);
+		float3 mnRGB2 = QXAAmin5(mnRGB, a, c, g, i);
+
+		float3 mxRGB = QXAAmax5(d, casdot, f, b, h);
+		float3 mxRGB2 = QXAAmax5(mxRGB,a,c,g,i);
+	
+		casdot = ConditionalDecode(casdot);
+		mnRGB = ConditionalDecode(mnRGB);
+		mnRGB2 = ConditionalDecode(mnRGB2);
+		mxRGB = ConditionalDecode(mxRGB);
+		mxRGB2 = ConditionalDecode(mxRGB2);
+	
+		mnRGB += mnRGB2;
+		mxRGB += mxRGB2;
+	
+		float3 ampRGB = 1.0 / sqrt(saturate(min(mnRGB, 2.0 - mxRGB) * (1.0 / mxRGB)));    
+		float3 wRGB = -(1.0 / (ampRGB * mad(-3.0, QxaaSharpenerAdaptation, 8.0)));
+		float3 window = (b + d) + (f + h);
+	
+		float3 outColor = saturate(mad(window, wRGB, casdot) * (1.0 / mad(4.0, wRGB, 1.0)));
+		casdot = lerp(casdot, outColor, QxaaSharpenerStrength);
+	
+		pixel = casdot;
 		altered = true;
 	}
 	
-	if (altered) return ConditionalEncode(result);
-	else return pixel.rgb;
+	float hysteresis = (dot(pixel, __QXAA_LUMA_REF) - preluma) * QxaaHysteresisStrength;
+	if (abs(hysteresis) > QxaaHysteresisFudgeFactor)
+	{
+		pixel = pow(abs(1.0 + hysteresis) * 2.0, log2(pixel));
+		altered = true;
+	}
+	
+	if (QxaaEnableTonemap && (QxaaTonemapping > 0))
+	{
+		if (QxaaTonemapping == 1) pixel = extended_reinhard(pixel);
+		if (QxaaTonemapping == 2) pixel = extended_reinhard_luma(pixel);
+		if (QxaaTonemapping == 3) pixel = reinhard_jodie(pixel);
+		if (QxaaTonemapping == 4) pixel = uncharted2_filmic(pixel);
+		if (QxaaTonemapping == 5) pixel = aces_approx(pixel);
+		if (QxaaTonemapping == 6) pixel = logarithmic_fake_hdr(pixel);
+		if (QxaaTonemapping == 7) pixel = logarithmic_range_compression(pixel);
+		altered = true;
+	}
+	
+	if (QxaaEnableTonemap && (QxaaGainStrength > 0.0))
+	{
+		float3 outdot = pixel;
+		float presaturation = dotsat(outdot);
+		float preluma = dot(outdot, __QXAA_LUMA_REF);
+		float colorgain = 2.0 - log2(QxaaGainStrength + 1.0);
+		float channelfloor = __QXAA_MIN_STEP;
+		outdot = log2(clamp(outdot, channelfloor, 1.0 - channelfloor));
+		outdot = pow(abs(colorgain), outdot);
+		if (QxaaGainLowLumaCorrection)
+		{
+			// calculate new black level
+			channelfloor = pow(abs(colorgain), log2(channelfloor));
+			// calculate reduction strength to apply
+			float contrastgain = log(1.0 / (dot(outdot, __QXAA_LUMA_REF) - channelfloor)) * pow(__QXAA_CONST_E, (1.0 + channelfloor) * __QXAA_CONST_E) * QxaaGainStrength * QxaaGainStrength;
+			outdot = pow(abs(2.0 + contrastgain) * 5.0, log10(outdot));
+			float lumadelta = dot(outdot, __QXAA_LUMA_REF) - preluma;
+			outdot = RGBtoYUV(outdot);
+			outdot.x = saturate(outdot.x - lumadelta * channelfloor);
+			outdot = YUVtoRGB(outdot);
+			float newsat = dotsat(outdot);
+			float satadjust = abs(((newsat - presaturation) / 2.0) * (1.0 + QxaaGainStrength)); // compute difference in before/after saturation
+			if (satadjust != 0.0) outdot = AdjustSaturation(outdot, 0.5 + satadjust);
+		}
+		pixel = outdot;
+		altered = true;
+	}
+
+	if (QxaaEnableTonemap && (QxaaBlueLightFilter != 0.0))
+	{
+		float3 outdot = RGBtoYUV(pixel);
+		float strength = 1.0 - QxaaBlueLightFilter;
+		float signalclamp = (outdot.x * 0.5) * dotsat(pixel) * abs(outdot.y);
+		if (outdot.z > 0.0) outdot.z = clamp(outdot.z * strength, signalclamp, 0.5);
+		pixel = YUVtoRGB(outdot);
+		altered = true;
+	}
+	
+	if (QxaaEnableTonemap && (QxaaSaturationStrength != 0.5))
+	{
+		float3 outdot = AdjustSaturation(pixel, QxaaSaturationStrength);
+		pixel = outdot;
+		altered = true;
+	}
+	
+	if (altered) return ConditionalEncode(pixel);
+	else return original;
 }
 
 /***************************************************************************************************************************************/
