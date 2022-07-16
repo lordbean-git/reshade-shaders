@@ -61,7 +61,7 @@ uniform int StaaAboutSTART <
 uniform int StaaIntroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 0.2";
+	ui_label = "Version: 0.2.1";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"      Subpixel-jittered Temporal Anti-Aliasing, a shader by lordbean\n"
 			"             https://github.com/lordbean-git/reshade-shaders/\n"
@@ -265,34 +265,6 @@ texture StaaJitterTex1
 };
 sampler JitterTex1 {Texture = StaaJitterTex1;};
 
-texture StaaJitterTex2
-{
-	Width = BUFFER_WIDTH;
-	Height = BUFFER_HEIGHT;
-	#if BUFFER_COLOR_BIT_DEPTH == 8
-	Format = RGBA8;
-	#elif BUFFER_COLOR_BIT_DEPTH == 10
-	Format = RGB10A2;
-	#else
-	Format = RGBA16F;
-	#endif
-};
-sampler JitterTex2 {Texture = StaaJitterTex2;};
-
-texture StaaJitterTex3
-{
-	Width = BUFFER_WIDTH;
-	Height = BUFFER_HEIGHT;
-	#if BUFFER_COLOR_BIT_DEPTH == 8
-	Format = RGBA8;
-	#elif BUFFER_COLOR_BIT_DEPTH == 10
-	Format = RGB10A2;
-	#else
-	Format = RGBA16F;
-	#endif
-};
-sampler JitterTex3 {Texture = StaaJitterTex3;};
-
 texture StaaEdgesTex
 {
 	Width = BUFFER_WIDTH;
@@ -363,21 +335,10 @@ float4 GenerateBufferJitterPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCO
 	float2 offsetdir = 0.0.xx;
 	if (FrameCounter & 1 == 0) offsetdir = __STAA_OFFSET;
 	else offsetdir = __STAA_REVERSE;
-	return STAA_Tex2D(ReShade::BackBuffer, texcoord + offsetdir);
-}
-float4 GenerateBufferReverseJitterPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
-{
-	float2 offsetdir = 0.0.xx;
-	if (FrameCounter & 1 == 0) offsetdir = -__STAA_OFFSET;
-	else offsetdir = -__STAA_REVERSE;
-	return STAA_Tex2D(ReShade::BackBuffer, texcoord + offsetdir);
+	return (STAA_Tex2D(ReShade::BackBuffer, texcoord + offsetdir) + STAA_Tex2D(ReShade::BackBuffer, texcoord - offsetdir)) / 2.0;
 }
 
-float4 TransferTexOnePS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
-{
-	return STAA_Tex2D(JitterTex1, texcoord);
-}
-float4 TransferTexZeroPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
+float4 TransferJitterTexPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
 {
 	return STAA_Tex2D(JitterTex0, texcoord);
 }
@@ -388,11 +349,7 @@ float4 TemporalBlendingPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD)
 	if (!any(edges)) return STAA_Tex2D(ReShade::BackBuffer, texcoord);
 	float4 jitter0 = STAA_Tex2D(JitterTex0, texcoord);
 	float4 jitter1 = STAA_Tex2D(JitterTex1, texcoord);
-	float4 jitter2 = STAA_Tex2D(JitterTex2, texcoord);
-	float4 jitter3 = STAA_Tex2D(JitterTex3, texcoord);
-	float4 currentframe = (jitter0 + jitter1) / 2.0;
-	float4 lastframe = (jitter2 + jitter3) / 2.0;
-	return lerp(currentframe, lastframe, TemporalWeight);
+	return lerp(jitter0, jitter1, TemporalWeight);
 }
 
 float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
@@ -553,18 +510,11 @@ technique STAA
 		VertexShader = PostProcessVS;
 		PixelShader = QXAAPS;
 	}
-	pass FreshJitter1
+	pass FreshJitter
 	{
 		VertexShader = PostProcessVS;
 		PixelShader = GenerateBufferJitterPS;
 		RenderTarget = StaaJitterTex0;
-		ClearRenderTargets = true;
-	}
-	pass FreshJitter2
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = GenerateBufferReverseJitterPS;
-		RenderTarget = StaaJitterTex1;
 		ClearRenderTargets = true;
 	}
 	pass TemporalBlending
@@ -575,15 +525,8 @@ technique STAA
 	pass FrameTransfer
 	{
 		VertexShader = PostProcessVS;
-		PixelShader = TransferTexZeroPS;
-		RenderTarget = StaaJitterTex2;
-		ClearRenderTargets = true;
-	}
-	pass FrameTransfer
-	{
-		VertexShader = PostProcessVS;
-		PixelShader = TransferTexOnePS;
-		RenderTarget = StaaJitterTex3;
+		PixelShader = TransferJitterTexPS;
+		RenderTarget = StaaJitterTex1;
 		ClearRenderTargets = true;
 	}
 }
