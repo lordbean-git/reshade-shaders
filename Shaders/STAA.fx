@@ -55,13 +55,13 @@ uniform uint FrameCounter <source = "framecount";>;
 uniform int StaaAboutSTART <
 	ui_type = "radio";
 	ui_label = " ";
-	ui_text = "\n-------------------------------- STAA v0.1 Beta --------------------------------";
+	ui_text = "\n-------------------------------- STAA v0.2 Beta --------------------------------";
 >;
 
 uniform int StaaIntroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 0.1";
+	ui_label = "Version: 0.2";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"      Subpixel-jittered Temporal Anti-Aliasing, a shader by lordbean\n"
 			"             https://github.com/lordbean-git/reshade-shaders/\n"
@@ -84,6 +84,16 @@ uniform int StaaAboutEOF <
 	ui_text = "\n--------------------------------------------------------------------------------";
 >;
 
+uniform float EdgeThreshold <
+	ui_type = "slider";
+	ui_label = "Edge Threshold";
+	ui_min = 0.0; ui_max = 1.0; ui_step = 0.001;
+	ui_label = "Minimum contrast delta to be considered an edge.\n"
+			   "To control ghosting, temporal jittering only runs\n"
+			   "where edges are detected. Default should work well\n"
+			   "in most cases, 0 can be used to process full scene.";
+> = 0.06;
+
 uniform float JitterOffset <
 	ui_type = "slider";
 	ui_label = "Jitter Offset";
@@ -91,7 +101,7 @@ uniform float JitterOffset <
 	ui_tooltip = "Distance (in pixels) that temporal samples\n"
 				 "will be jittered. Higher counteracts more\n"
 				 "aliasing and shimmering but increases blur.";
-> = 0.4;
+> = 0.375;
 
 uniform float TemporalWeight <
 	ui_type = "slider";
@@ -100,7 +110,7 @@ uniform float TemporalWeight <
 	ui_tooltip = "Amount of weight given to previous frame.\n"
 				 "Causes a bit of ghosting, but helps to\n"
 				 "cover shimmering and temporal aliasing.";
-> = 0.125;
+> = 0.5;
 
 uniform int StaaOptionsEOF <
 	ui_type = "radio";
@@ -124,11 +134,11 @@ uniform int StaaOptionsEOF <
 #define __STAA_GREEN_LUMA float3(1./5., 7./10., 1./10.)
 #define __STAA_RED_LUMA float3(5./8., 1./4., 1./8.)
 #define __STAA_BLUE_LUMA float3(1./8., 3./8., 1./2.)
-#define __STAA_OFFSET float2(BUFFER_RCP_WIDTH * JitterOffset, BUFFER_RCP_HEIGHT * JitterOffset)
+#define __STAA_BUFFER_STEP float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT)
+#define __STAA_OFFSET float2(JitterOffset * __STAA_BUFFER_STEP)
 #define __STAA_REVERSE float2(__STAA_OFFSET.x, -__STAA_OFFSET.y)
 
 #define STAA_Tex2D(tex, coord) tex2Dlod(tex, (coord).xyxy)
-#define STAA_DecodeTex2D(tex, coord) ConditionalDecode(tex2Dlod(tex, (coord).xyxy))
 
 #define STAAmax3(x,y,z) max(max(x,y),z)
 #define STAAmax4(w,x,y,z) max(max(w,x),max(y,z))
@@ -191,6 +201,28 @@ float3 lxor(float3 x, float3 y)
 float4 lxor(float4 x, float4 y)
 {
 	return float4(lxor(x.xy, y.xy), lxor(x.zw, y.zw));
+}
+
+float lnand(float x, float y)
+{
+	return y == 0.0 ? x : 0.0;
+}
+float2 lnand(float2 x, float2 y)
+{
+	return float2(lnand(x.x, y.x), lnand(x.y, y.y));
+}
+float3 lnand(float3 x, float3 y)
+{
+	return float3(lnand(x.x, y.x), lnand(x.yz, y.yz));
+}
+float4 lnand(float4 x, float4 y)
+{
+	return float4(lnand(x.xy, y.xy), lnand(x.zw, y.zw));
+}
+
+float chromadelta(float3 pixel1, float3 pixel2)
+{
+	return dot(abs(pixel1 - pixel2), float3(0.333333, 0.333334, 0.333333));
 }
 
 /***************************************************************************************************************************************/
@@ -261,6 +293,14 @@ texture StaaJitterTex3
 };
 sampler JitterTex3 {Texture = StaaJitterTex3;};
 
+texture StaaEdgesTex
+{
+	Width = BUFFER_WIDTH;
+	Height = BUFFER_HEIGHT;
+	Format = RG8;
+};
+sampler EdgesTex {Texture = StaaEdgesTex;};
+
 /*****************************************************************************************************************************************/
 /*********************************************************** SHADER SETUP END ************************************************************/
 /*****************************************************************************************************************************************/
@@ -268,6 +308,55 @@ sampler JitterTex3 {Texture = StaaJitterTex3;};
 /*****************************************************************************************************************************************/
 /************************************************************ SHADER CODE START **********************************************************/
 /*****************************************************************************************************************************************/
+
+float2 EdgeDetectionPS(float4 position : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
+{
+	float3 middle = STAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
+	float edgethreshold = EdgeThreshold;
+	float2 hvstep = __STAA_BUFFER_STEP;
+	float2 diagstep = hvstep * __STAA_CONST_HALFROOT2;
+	
+    float Dtop = chromadelta(middle, STAA_Tex2D(ReShade::BackBuffer, texcoord - float2(0, hvstep.y)).rgb);
+    float Dleft = chromadelta(middle, STAA_Tex2D(ReShade::BackBuffer, texcoord - float2(hvstep.x, 0)).rgb);
+    float Dright = chromadelta(middle, STAA_Tex2D(ReShade::BackBuffer, texcoord + float2(hvstep.x, 0)).rgb);
+    float Dbottom = chromadelta(middle, STAA_Tex2D(ReShade::BackBuffer, texcoord + float2(0, hvstep.y)).rgb);
+	float Dtopleft = chromadelta(middle, STAA_Tex2D(ReShade::BackBuffer, texcoord - diagstep).rgb);
+	float Dbottomright = chromadelta(middle, STAA_Tex2D(ReShade::BackBuffer, texcoord + diagstep).rgb);
+	float Dtopright = chromadelta(middle, STAA_Tex2D(ReShade::BackBuffer, texcoord + float2(diagstep.x, -diagstep.y)).rgb);
+	float Dbottomleft = chromadelta(middle, STAA_Tex2D(ReShade::BackBuffer, texcoord + float2(-diagstep.x, diagstep.y)).rgb);
+	
+    // delta
+    // * y *
+    // x * z
+    // * w *
+    
+    // diagdelta
+    // r * b
+    // * * *
+    // g * a
+    
+	float4 delta = step(edgethreshold, float4(Dleft, Dtop, Dright, Dbottom));
+	float4 diagdelta = step(edgethreshold, float4(Dtopleft, Dbottomleft, Dtopright, Dbottomright));
+	
+	float2 fulldiag = lxor(diagdelta.r * diagdelta.a, diagdelta.g * diagdelta.b).xx;
+	
+	float neardiag1 = lnand(saturate(diagdelta.b * delta.z * delta.w + diagdelta.g * delta.x * delta.y), diagdelta.a + diagdelta.r);
+	float neardiag2 = lnand(saturate(diagdelta.a * delta.z * delta.y + diagdelta.r * delta.x * delta.w), diagdelta.b + diagdelta.g);
+	float neardiag3 = lnand(saturate(diagdelta.b * delta.y * delta.x + diagdelta.g * delta.w * delta.z), diagdelta.a + diagdelta.r);
+	float neardiag4 = lnand(saturate(diagdelta.r * delta.y * delta.z + diagdelta.a * delta.w * delta.x), diagdelta.b + diagdelta.g);
+	float2 neardiag = lxor(lxor(neardiag1, neardiag2), lxor(neardiag3, neardiag4)).xx;
+	
+	float2 hvedges = float2(delta.x * delta.z, delta.y * delta.w);
+	if (lxor(hvedges.x, hvedges.y) == 0.0) hvedges = 0.0.xx;
+	
+	float2 edges = 0.0.xx;
+	edges = fulldiag;
+	if (!any(edges)) edges = neardiag;
+	if (!any(edges)) edges = hvedges;
+	if (!any(edges)) edges = step(edgethreshold, max(float2(Dleft, Dtop), float2(Dright, Dbottom)));
+	
+	return edges;
+}
 
 float4 GenerateBufferJitterPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
 {
@@ -295,6 +384,8 @@ float4 TransferTexZeroPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) 
 
 float4 TemporalBlendingPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
 {
+	float2 edges = STAA_Tex2D(EdgesTex, texcoord).rg;
+	if (!any(edges)) return STAA_Tex2D(ReShade::BackBuffer, texcoord);
 	float4 jitter0 = STAA_Tex2D(JitterTex0, texcoord);
 	float4 jitter1 = STAA_Tex2D(JitterTex1, texcoord);
 	float4 jitter2 = STAA_Tex2D(JitterTex2, texcoord);
@@ -349,6 +440,9 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 	float4 crosscheck = max(crossdelta, diagdelta);
 	float2 stepcheck = max(crosscheck.xy, crosscheck.zw);
     float range = max(stepcheck.x, stepcheck.y);
+	
+	float2 edges = STAA_Tex2D(EdgesTex, texcoord).rg;
+	if (range < EdgeThreshold && !any(edges)) return original;
     
 	float2 lumaNP = float2(lumaN, lumaS);
 	STAAMovc(!horzSpan.xx, lumaNP, float2(lumaW, lumaE));
@@ -447,6 +541,13 @@ float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
 
 technique STAA
 {
+	pass EdgeDetection
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = EdgeDetectionPS;
+		RenderTarget = StaaEdgesTex;
+		ClearRenderTargets = true;
+	}
 	pass QXAA
 	{
 		VertexShader = PostProcessVS;
