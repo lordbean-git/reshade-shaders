@@ -61,6 +61,15 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 /*********************************************************** UI SETUP START **************************************************************/
 /*****************************************************************************************************************************************/
 
+#ifndef STAA_MULTISAMPLE_COUNT
+	#define STAA_MULTISAMPLE_COUNT 2
+#endif
+
+#if STAA_MULTISAMPLE_COUNT > 4 || STAA_MULTISAMPLE_COUNT < 1
+	#undef STAA_MULTISAMPLE_COUNT
+	#define STAA_MULTISAMPLE_COUNT 2
+#endif
+
 #include "ReShadeUI.fxh"
 
 uniform uint FrameCounter <source = "framecount";>;
@@ -68,13 +77,13 @@ uniform uint FrameCounter <source = "framecount";>;
 uniform int StaaAboutSTART <
 	ui_type = "radio";
 	ui_label = " ";
-	ui_text = "\n----------------------------------- STAA 1.0 -----------------------------------";
+	ui_text = "\n----------------------------------- STAA 1.1 -----------------------------------";
 >;
 
 uniform int StaaIntroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 1.0";
+	ui_label = "Version: 1.1";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"      Subpixel-jittered Temporal Anti-Aliasing, a shader by lordbean\n"
 			"             https://github.com/lordbean-git/reshade-shaders/\n"
@@ -84,6 +93,19 @@ uniform int StaaIntroduction <
 			"of the incurred blurring. Settings for QXAA and CAS are calculated using\n"
 			"the TAA configuration in order to produce good output. Additional\n"
 			"sharpening is recommended after STAA runs.\n"
+			"\nIncreasing the number of blend passes may increase quality. Be aware\n"
+			"that each extra pass requires additional VRAM for extra textures. Check\n"
+			"the Statistics tab for information on how much VRAM the shader is using.\n"
+			"\nJitter Blend Passes:                                                   "
+			#if STAA_MULTISAMPLE_COUNT > 3
+			"4x\n"
+			#elif STAA_MULTISAMPLE_COUNT > 2
+			"3x\n"
+			#elif STAA_MULTISAMPLE_COUNT > 1
+			"2x\n"
+			#else
+			"1x\n"
+			#endif
 			"\n-------------------------------------------------------------------------"
 			"\nSee the 'Preprocessor definitions' section for color & feature toggles.\n"
 			"-------------------------------------------------------------------------";
@@ -292,6 +314,7 @@ texture StaaJitterTex1
 };
 sampler JitterTex1 {Texture = StaaJitterTex1;};
 
+#if STAA_MULTISAMPLE_COUNT > 1
 texture StaaJitterTex2
 {
 	Width = BUFFER_WIDTH;
@@ -319,6 +342,67 @@ texture StaaJitterTex3
 	#endif
 };
 sampler JitterTex3 {Texture = StaaJitterTex3;};
+#endif
+
+#if STAA_MULTISAMPLE_COUNT > 2
+texture StaaJitterTex4
+{
+	Width = BUFFER_WIDTH;
+	Height = BUFFER_HEIGHT;
+	#if BUFFER_COLOR_BIT_DEPTH == 8
+	Format = RGBA8;
+	#elif BUFFER_COLOR_BIT_DEPTH == 10
+	Format = RGB10A2;
+	#else
+	Format = RGBA16F;
+	#endif
+};
+sampler JitterTex4 {Texture = StaaJitterTex4;};
+
+texture StaaJitterTex5
+{
+	Width = BUFFER_WIDTH;
+	Height = BUFFER_HEIGHT;
+	#if BUFFER_COLOR_BIT_DEPTH == 8
+	Format = RGBA8;
+	#elif BUFFER_COLOR_BIT_DEPTH == 10
+	Format = RGB10A2;
+	#else
+	Format = RGBA16F;
+	#endif
+};
+sampler JitterTex5 {Texture = StaaJitterTex5;};
+#endif
+
+#if STAA_MULTISAMPLE_COUNT > 3
+texture StaaJitterTex6
+{
+	Width = BUFFER_WIDTH;
+	Height = BUFFER_HEIGHT;
+	#if BUFFER_COLOR_BIT_DEPTH == 8
+	Format = RGBA8;
+	#elif BUFFER_COLOR_BIT_DEPTH == 10
+	Format = RGB10A2;
+	#else
+	Format = RGBA16F;
+	#endif
+};
+sampler JitterTex6 {Texture = StaaJitterTex6;};
+
+texture StaaJitterTex7
+{
+	Width = BUFFER_WIDTH;
+	Height = BUFFER_HEIGHT;
+	#if BUFFER_COLOR_BIT_DEPTH == 8
+	Format = RGBA8;
+	#elif BUFFER_COLOR_BIT_DEPTH == 10
+	Format = RGB10A2;
+	#else
+	Format = RGBA16F;
+	#endif
+};
+sampler JitterTex7 {Texture = StaaJitterTex7;};
+#endif
 
 texture StaaEdgesTex
 {
@@ -373,11 +457,6 @@ float4 TransferJitterTexPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD
 	return STAA_Tex2D(JitterTex0, texcoord);
 }
 
-float4 TransferJitterTexTwoPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
-{
-	return STAA_Tex2D(JitterTex2, texcoord);
-}
-
 float4 TemporalBlendingPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
 {
 	float edges = STAA_Tex2D(EdgesTex, texcoord).r;
@@ -388,6 +467,12 @@ float4 TemporalBlendingPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD)
 	float4 jitter1 = STAA_Tex2D(JitterTex1, texcoord);
 	float4 temporaljitter = lerp(jitter0, jitter1, TemporalWeight);
 	return lerp(original, temporaljitter, blendweight);
+}
+
+#if STAA_MULTISAMPLE_COUNT > 1
+float4 TransferJitterTexTwoPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
+{
+	return STAA_Tex2D(JitterTex2, texcoord);
 }
 
 float4 TemporalBlendingTwoPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
@@ -401,6 +486,45 @@ float4 TemporalBlendingTwoPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOO
 	float4 temporaljitter = lerp(jitter0, jitter1, TemporalWeight);
 	return lerp(original, temporaljitter, blendweight);
 }
+#endif
+
+#if STAA_MULTISAMPLE_COUNT > 2
+float4 TransferJitterTexThreePS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
+{
+	return STAA_Tex2D(JitterTex4, texcoord);
+}
+
+float4 TemporalBlendingThreePS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
+{
+	float edges = STAA_Tex2D(EdgesTex, texcoord).r;
+	float4 original = STAA_Tex2D(ReShade::BackBuffer, texcoord);
+	if (!edges) return original;
+	float blendweight = (1.0 - MinimumBlend) * sqrt(edges) + MinimumBlend;
+	float4 jitter0 = STAA_Tex2D(JitterTex4, texcoord);
+	float4 jitter1 = STAA_Tex2D(JitterTex5, texcoord);
+	float4 temporaljitter = lerp(jitter0, jitter1, TemporalWeight);
+	return lerp(original, temporaljitter, blendweight);
+}
+#endif
+
+#if STAA_MULTISAMPLE_COUNT > 3
+float4 TransferJitterTexFourPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
+{
+	return STAA_Tex2D(JitterTex6, texcoord);
+}
+
+float4 TemporalBlendingFourPS(float4 vpos : SV_POSITION, float2 texcoord : TEXCOORD) : SV_Target
+{
+	float edges = STAA_Tex2D(EdgesTex, texcoord).r;
+	float4 original = STAA_Tex2D(ReShade::BackBuffer, texcoord);
+	if (!edges) return original;
+	float blendweight = (1.0 - MinimumBlend) * sqrt(edges) + MinimumBlend;
+	float4 jitter0 = STAA_Tex2D(JitterTex6, texcoord);
+	float4 jitter1 = STAA_Tex2D(JitterTex7, texcoord);
+	float4 temporaljitter = lerp(jitter0, jitter1, TemporalWeight);
+	return lerp(original, temporaljitter, blendweight);
+}
+#endif
 
 float3 QXAAPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) : SV_Target
  {
@@ -540,8 +664,19 @@ float3 CASPS(float4 vpos : SV_Position, float2 texcoord : TexCoord) : SV_Target
     float3 e = STAA_Tex2D(ReShade::BackBuffer, texcoord).rgb;
 	if (!edges) return e;
 	
+	#if STAA_MULTISAMPLE_COUNT > 3
+	float SharpeningStrength = saturate(pow(abs(edges), 0.25));
+	float SharpeningContrast = saturate(sqrt(edges));
+	#elif STAA_MULTISAMPLE_COUNT > 2
+	float SharpeningStrength = saturate(pow(abs(edges), 0.333333));
+	float SharpeningContrast = saturate(pow(abs(edges), 0.75));
+	#elif STAA_MULTISAMPLE_COUNT > 1
 	float SharpeningStrength = saturate(sqrt(edges));
 	float SharpeningContrast = saturate(edges);
+	#else
+	float SharpeningStrength = saturate(edges);
+	float SharpeningContrast = 0.0;
+	#endif
 	
 	float offset = saturate(0.6 + JitterOffset);
 	float2 bstep = offset * float2(BUFFER_RCP_WIDTH, BUFFER_RCP_HEIGHT);
@@ -633,6 +768,7 @@ technique STAA
 		RenderTarget = StaaJitterTex1;
 		ClearRenderTargets = true;
 	}
+	#if STAA_MULTISAMPLE_COUNT > 1
 	pass EdgeDetection
 	{
 		VertexShader = PostProcessVS;
@@ -659,6 +795,63 @@ technique STAA
 		RenderTarget = StaaJitterTex3;
 		ClearRenderTargets = true;
 	}
+	#endif
+	#if STAA_MULTISAMPLE_COUNT > 2
+	pass EdgeDetection
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = EdgeDetectionPS;
+		RenderTarget = StaaEdgesTex;
+		ClearRenderTargets = true;
+	}
+	pass FreshJitterThree
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = GenerateBufferJitterPS;
+		RenderTarget = StaaJitterTex4;
+		ClearRenderTargets = true;
+	}
+	pass TemporalBlendingThree
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = TemporalBlendingThreePS;
+	}
+	pass FrameTransferThree
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = TransferJitterTexThreePS;
+		RenderTarget = StaaJitterTex5;
+		ClearRenderTargets = true;
+	}
+	#endif
+	#if STAA_MULTISAMPLE_COUNT > 3
+	pass EdgeDetection
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = EdgeDetectionPS;
+		RenderTarget = StaaEdgesTex;
+		ClearRenderTargets = true;
+	}
+	pass FreshJitterFour
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = GenerateBufferJitterPS;
+		RenderTarget = StaaJitterTex6;
+		ClearRenderTargets = true;
+	}
+	pass TemporalBlendingFour
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = TemporalBlendingFourPS;
+	}
+	pass FrameTransferFour
+	{
+		VertexShader = PostProcessVS;
+		PixelShader = TransferJitterTexFourPS;
+		RenderTarget = StaaJitterTex7;
+		ClearRenderTargets = true;
+	}
+	#endif
 	pass EdgeDetection
 	{
 		VertexShader = PostProcessVS;
