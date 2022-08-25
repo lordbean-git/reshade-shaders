@@ -82,7 +82,7 @@ COPYRIGHT (C) 2010, 2011 NVIDIA CORPORATION. ALL RIGHTS RESERVED.
 uniform int QXAAintroduction <
 	ui_spacing = 3;
 	ui_type = "radio";
-	ui_label = "Version: 1.7";
+	ui_label = "Version: 1.8";
 	ui_text = "-------------------------------------------------------------------------\n"
 			"      high-Quality approXimate Anti-Aliasing, a shader by lordbean\n"
 			"             https://github.com/lordbean-git/reshade-shaders/\n"
@@ -1140,19 +1140,22 @@ float3 QXAAHysteresisPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) :
 	float hysteresis = (dot(pixel, __QXAA_LUMA_REF) - preluma) * QxaaHysteresisStrength;
 	if (abs(hysteresis) > QxaaHysteresisFudgeFactor)
 	{
+		bool3 truezero = !pixel;
 		pixel = pow(abs(1.0 + hysteresis) * 2.0, log2(pixel));
+		pixel *= float3(!truezero);
 		altered = true;
 	}
 	
 	if (QxaaEnableTonemap && (QxaaTonemapping > 0))
 	{
+		bool3 truezero = !pixel;
 		if (QxaaTonemapping == 1) pixel = extended_reinhard(pixel);
 		if (QxaaTonemapping == 2) pixel = extended_reinhard_luma(pixel);
 		if (QxaaTonemapping == 3) pixel = reinhard_jodie(pixel);
 		if (QxaaTonemapping == 4) pixel = uncharted2_filmic(pixel);
 		if (QxaaTonemapping == 5) pixel = aces_approx(pixel);
-		if (QxaaTonemapping == 6) pixel = logarithmic_fake_hdr(pixel);
-		if (QxaaTonemapping == 7) pixel = logarithmic_range_compression(pixel);
+		if (QxaaTonemapping == 6) pixel = logarithmic_fake_hdr(pixel) * float3(!truezero);
+		if (QxaaTonemapping == 7) pixel = logarithmic_range_compression(pixel) * float3(!truezero);
 		altered = true;
 	}
 	
@@ -1161,6 +1164,7 @@ float3 QXAAHysteresisPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) :
 		float3 outdot = pixel;
 		float presaturation = dotsat(outdot);
 		float preluma = dot(outdot, __QXAA_LUMA_REF);
+		bool3 truezero = !outdot;
 		float colorgain = 2.0 - log2(QxaaGainStrength + 1.0);
 		float channelfloor = __QXAA_MIN_STEP;
 		outdot = log2(clamp(outdot, channelfloor, 1.0 - channelfloor));
@@ -1180,7 +1184,7 @@ float3 QXAAHysteresisPS(float4 vpos : SV_Position, float2 texcoord : TEXCOORD) :
 			float satadjust = abs(((newsat - presaturation) / 2.0) * (1.0 + QxaaGainStrength)); // compute difference in before/after saturation
 			if (satadjust != 0.0) outdot = AdjustSaturation(outdot, 0.5 + satadjust);
 		}
-		pixel = outdot;
+		pixel = float3(!truezero) * outdot;
 		altered = true;
 	}
 
